@@ -2,7 +2,10 @@
 K-step forward-simulation engine: given a real observed context window
 (S_{t-L+1}..S_t), roll the trained world model forward K steps and produce a
 time-series infiltration probability, a predicted MITRE stage per step, and
-a (context-level) explainability stub.
+real, context-level explainability (attention weights + gradient-based
+feature attribution, added in Phase 5 -- see explain/attention.py and
+explain/saliency.py; not the Phase 4 heuristic stub, which is also still
+attached for comparison as `driving_context_flows`).
 
 How the rollout works, per temporal core (see models/temporal.py)
 -------------------------------------------------------------------
@@ -43,6 +46,13 @@ from models.world_model import WorldModel
 from rollout.explain_stub import top_contributing_edges
 from rollout.mitre import StagePrediction, predict_stage
 
+# Imported lazily-safe here (neither module imports rollout.engine, so no
+# circular import) -- explain/explainer.py, by contrast, imports
+# run_rollout() FROM this module, so this module must never import
+# explain.explainer back.
+from explain.attention import compute_edge_attention, top_edges_overall
+from explain.saliency import compute_feature_saliency
+
 
 @dataclass
 class RolloutResult:
@@ -52,14 +62,15 @@ class RolloutResult:
     infiltration_probability: list[float]
     attack_type_probs: list[dict[str, float]]  # length k, empty dict if no attack-type head
     stage_predictions: list[StagePrediction]
-    driving_context_flows: list[dict] = field(default_factory=list)  # see explain_stub.py
+    driving_context_flows: list[dict] = field(default_factory=list)  # Phase 4 heuristic stub, see explain_stub.py
+    attention_flows: list[dict] = field(default_factory=list)  # Phase 5: real GNN attention, see explain/attention.py
+    feature_saliency: dict = field(default_factory=dict)  # Phase 5: real gradient attribution, see explain/saliency.py
 
 
 def _sigmoid(x: torch.Tensor) -> torch.Tensor:
     return torch.sigmoid(x)
 
 
-@torch.no_grad()
 def run_rollout(
     model: WorldModel,
     context_snapshots: list[GraphSnapshot],
@@ -67,7 +78,13 @@ def run_rollout(
     k: int,
     device: torch.device,
     infiltration_threshold: float = 0.5,
+    compute_explanations: bool = True,
 ) -> RolloutResult:
+    """compute_explanations=True (default) additionally computes real
+    attention-weight and gradient-based feature attribution for the context
+    (Phase 5) -- set False to skip that extra forward/backward pass when only
+    the probability time series is needed (e.g. inside a training loop or a
+    benchmark sweep over many contexts)."""
     if len(context_snapshots) < 1:
         raise ValueError("run_rollout requires at least one context snapshot")
     if len({s.day for s in context_snapshots}) > 1:
@@ -76,56 +93,68 @@ def run_rollout(
     model.eval()
     day = context_snapshots[0].day
     context_end = context_snapshots[-1].window_id
+    last_context_snapshot = context_snapshots[-1]
 
-    data_list = [snapshot_to_pyg_data(s, normalizer) for s in context_snapshots]
-    batch = Batch.from_data_list(data_list).to(device)
-    z_context = model.encode_sequence(batch, batch_size=1, seq_len_plus_1=len(context_snapshots))  # (1, L, D)
+    # The K-step rollout loop itself never needs gradients (it's pure
+    # inference) -- explicitly scoped rather than a function-level
+    # @torch.no_grad() decorator, because the explanation step below (when
+    # requested) needs gradients enabled and must run in the same function.
+    with torch.no_grad():
+        data_list = [snapshot_to_pyg_data(s, normalizer) for s in context_snapshots]
+        batch = Batch.from_data_list(data_list).to(device)
+        z_context = model.encode_sequence(batch, batch_size=1, seq_len_plus_1=len(context_snapshots))  # (1, L, D)
 
-    infiltration_probs: list[float] = []
-    type_probs: list[dict[str, float]] = []
-    vocab = model.config.attack_type_vocab
+        infiltration_probs: list[float] = []
+        type_probs: list[dict[str, float]] = []
+        vocab = model.config.attack_type_vocab
 
-    def _record(attack_logit: torch.Tensor, attack_type_logit: torch.Tensor | None) -> None:
-        prob = float(_sigmoid(attack_logit).item())
-        infiltration_probs.append(prob)
-        if attack_type_logit is not None and vocab:
-            probs = _sigmoid(attack_type_logit).squeeze(0).cpu().tolist()
-            type_probs.append(dict(zip(vocab, probs)))
-        else:
-            type_probs.append({})
+        def _record(attack_logit: torch.Tensor, attack_type_logit: torch.Tensor | None) -> None:
+            prob = float(_sigmoid(attack_logit).item())
+            infiltration_probs.append(prob)
+            if attack_type_logit is not None and vocab:
+                probs = _sigmoid(attack_type_logit).squeeze(0).cpu().tolist()
+                type_probs.append(dict(zip(vocab, probs)))
+            else:
+                type_probs.append({})
 
-    if hasattr(model.temporal, "lstm"):
-        hidden_seq, lstm_state = model.temporal.lstm(z_context)
-        h_t = hidden_seq[:, -1, :]
-        z_hat = model.dynamics_head(h_t)
-        combined = torch.cat([h_t, z_hat], dim=-1)
-        attack_logit = model.attack_head(combined).squeeze(-1)
-        attack_type_logit = model.attack_type_head(combined) if model.attack_type_head is not None else None
-        _record(attack_logit, attack_type_logit)
-
-        for _ in range(k - 1):
-            step = model.rollout_step(z_hat, lstm_state)
-            z_hat, lstm_state = step["z_hat_next"], step["lstm_state"]
-            _record(step["attack_logit"], step["attack_type_logit"])
-    else:
-        # Transformer (or any future TemporalCore): re-run the causal encoder
-        # over the growing latent sequence each step.
-        z_running = z_context
-        for _ in range(k):
-            h_seq = model.temporal(z_running)
-            h_t = h_seq[:, -1, :]
+        if hasattr(model.temporal, "lstm"):
+            hidden_seq, lstm_state = model.temporal.lstm(z_context)
+            h_t = hidden_seq[:, -1, :]
             z_hat = model.dynamics_head(h_t)
             combined = torch.cat([h_t, z_hat], dim=-1)
             attack_logit = model.attack_head(combined).squeeze(-1)
             attack_type_logit = model.attack_type_head(combined) if model.attack_type_head is not None else None
             _record(attack_logit, attack_type_logit)
-            z_running = torch.cat([z_running, z_hat.unsqueeze(1)], dim=1)
 
-    last_context_snapshot = context_snapshots[-1]
-    stage_predictions = [
-        predict_stage(prob, types, last_context_snapshot, infiltration_threshold)
-        for prob, types in zip(infiltration_probs, type_probs)
-    ]
+            for _ in range(k - 1):
+                step = model.rollout_step(z_hat, lstm_state)
+                z_hat, lstm_state = step["z_hat_next"], step["lstm_state"]
+                _record(step["attack_logit"], step["attack_type_logit"])
+        else:
+            # Transformer (or any future TemporalCore): re-run the causal
+            # encoder over the growing latent sequence each step.
+            z_running = z_context
+            for _ in range(k):
+                h_seq = model.temporal(z_running)
+                h_t = h_seq[:, -1, :]
+                z_hat = model.dynamics_head(h_t)
+                combined = torch.cat([h_t, z_hat], dim=-1)
+                attack_logit = model.attack_head(combined).squeeze(-1)
+                attack_type_logit = model.attack_type_head(combined) if model.attack_type_head is not None else None
+                _record(attack_logit, attack_type_logit)
+                z_running = torch.cat([z_running, z_hat.unsqueeze(1)], dim=1)
+
+        stage_predictions = [
+            predict_stage(prob, types, last_context_snapshot, infiltration_threshold)
+            for prob, types in zip(infiltration_probs, type_probs)
+        ]
+
+    attention_flows: list[dict] = []
+    feature_saliency: dict = {}
+    if compute_explanations:
+        edge_records = compute_edge_attention(model, last_context_snapshot, normalizer, device)
+        attention_flows = top_edges_overall(edge_records, top_k=5)
+        feature_saliency = compute_feature_saliency(model, context_snapshots, normalizer, device)
 
     return RolloutResult(
         day=day, context_end_window_id=context_end, k=k,
@@ -133,4 +162,6 @@ def run_rollout(
         attack_type_probs=type_probs,
         stage_predictions=stage_predictions,
         driving_context_flows=top_contributing_edges(last_context_snapshot),
+        attention_flows=attention_flows,
+        feature_saliency=feature_saliency,
     )

@@ -94,13 +94,32 @@ def main() -> None:
     for i, (prob, stage) in enumerate(zip(result.infiltration_probability, result.stage_predictions), start=1):
         print(f"{i:>5} {prob:>11.3f} {stage.stage:>28} {stage.basis:>18} {str(stage.predicted_attack_type):>22}")
 
-    print(f"\nDriving flows from the last observed real window (window {result.context_end_window_id}) "
-          f"-- simple magnitude-based stub, see rollout/explain_stub.py; real attention/SHAP attribution in Phase 5:")
+    print(f"\n[Phase 4 stub -- magnitude heuristic, not model attribution] Driving flows "
+          f"from window {result.context_end_window_id}:")
     for flow in result.driving_context_flows:
         print(f"  {flow['src_ip']:>15} -> {flow['dst_ip']:<15} "
               f"score={flow['score']:.2f} flows={int(flow['flow_count'])} "
               f"bytes={flow['bytes_sum']:.0f} dst_ports={int(flow['dst_port_nunique'])} "
               f"retrans={int(flow['retransmission_sum'])} attack={flow['is_attack_edge']}")
+
+    print(f"\n[Phase 5 -- real GNN attention weights] Top-attended flows into each target host "
+          f"(see explain/attention.py: weights are only comparable within one target's incoming edges):")
+    for flow in result.attention_flows:
+        print(f"  {flow['src_ip']:>15} -> {flow['dst_ip']:<15} "
+              f"attention={flow['attention_weight']:.2f} flows={int(flow['flow_count'])} "
+              f"bytes={flow['bytes_sum']:.0f} dst_ports={int(flow['dst_port_nunique'])} "
+              f"attack={flow['is_attack_edge']}")
+
+    if result.feature_saliency:
+        print(f"\n[Phase 5 -- real gradient-based feature attribution] "
+              f"Top contributing host-level features:")
+        for name, score in result.feature_saliency["top_node_features"][:5]:
+            print(f"  {name:<30} {score:.4f}")
+        print(f"Top contributing flow-level features:")
+        for name, score in result.feature_saliency["top_edge_features"][:5]:
+            print(f"  {name:<30} {score:.4f}")
+        print(f"Per-window saliency (which past context window mattered most, oldest -> newest):")
+        print(f"  {[round(v, 3) for v in result.feature_saliency['per_window_saliency']]}")
 
     if args.json_out:
         payload = {
@@ -112,6 +131,8 @@ def main() -> None:
                 for s in result.stage_predictions
             ],
             "driving_context_flows": result.driving_context_flows,
+            "attention_flows": result.attention_flows,
+            "feature_saliency": result.feature_saliency,
         }
         with open(args.json_out, "w") as f:
             json.dump(payload, f, indent=2)

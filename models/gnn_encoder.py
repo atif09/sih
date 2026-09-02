@@ -74,15 +74,34 @@ class GNNEncoder(nn.Module):
             nn.LayerNorm(latent_dim),
         )
 
-    def forward(self, batch: Batch) -> torch.Tensor:
+    def forward(self, batch: Batch, return_attention: bool = False):
         """batch: a PyG Batch of N graphs (possibly including zero-node
-        graphs). Returns (N, latent_dim)."""
+        graphs). Returns (N, latent_dim), or (embeddings, edge_attention) if
+        return_attention=True, where edge_attention is (E,) -- one weight per
+        edge in `batch.edge_index`, averaged across attention heads and
+        across the stacked TransformerConv layers (see explain/attention.py
+        for why: it's a single, simple, per-edge importance score rather
+        than per-layer-per-head detail, which is what Phase 5's
+        human-readable "top contributing flows" output wants).
+
+        return_attention has no effect on the returned embeddings themselves
+        (same computation either way) -- it only additionally captures what
+        TransformerConv already computes internally via
+        `return_attention_weights=True`, at zero cost to model behavior or
+        trained weights (no new parameters).
+        """
         x, edge_index, edge_attr = batch.x, batch.edge_index, batch.edge_attr
         num_graphs = batch.num_graphs
 
         h = x
+        layer_attentions = []
         for conv in self.convs:
-            h = conv(h, edge_index, edge_attr)
+            if return_attention:
+                h, (_, attn) = conv(h, edge_index, edge_attr, return_attention_weights=True)
+                # attn: (E, heads) -> mean over heads for a single scalar per edge.
+                layer_attentions.append(attn.mean(dim=-1))
+            else:
+                h = conv(h, edge_index, edge_attr)
             h = self.dropout(self.activation(h))
 
         node_mean = global_mean_pool(h, batch.batch, size=num_graphs)
@@ -95,4 +114,13 @@ class GNNEncoder(nn.Module):
             edge_mean = torch.zeros(num_graphs, self.edge_dim, device=x.device, dtype=x.dtype)
 
         pooled = torch.cat([node_mean, node_max, edge_mean], dim=-1)
-        return self.project(pooled)
+        embeddings = self.project(pooled)
+
+        if not return_attention:
+            return embeddings
+
+        if layer_attentions:
+            edge_attention = torch.stack(layer_attentions, dim=0).mean(dim=0)  # (E,)
+        else:
+            edge_attention = torch.zeros(edge_index.shape[1], device=x.device, dtype=x.dtype)
+        return embeddings, edge_attention

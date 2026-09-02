@@ -12,7 +12,7 @@ features/        Phase 1: flow-level + packet-level feature extraction, windowin
 graph/           Phase 2: graph state representation + ground-truth transition extraction
 models/          Phase 3: world model (GNN + temporal layer)
 rollout/         Phase 4: K-step forward simulation + MITRE ATT&CK stage mapping
-explain/         Phase 5: explainability (attention / SHAP)
+explain/         Phase 5: real explainability (GNN attention + gradient-based feature attribution)
 baseline/        Phase 6: logistic regression baseline
 benchmark/       Phase 6: world model vs. baseline comparison
 api/             Phase 7: FastAPI inference service
@@ -532,4 +532,109 @@ more) rather than a bug to hide.
 # Roll out K steps from a chosen context window
 ./.venv/bin/python scripts/run_rollout.py --day Friday-Afternoon-DDoS \
     --start-window 40 --context-len 20 --k 10 --json-out /tmp/rollout.json
+```
+
+## Phase 5 — Explainability Layer
+
+### Approach: real GNN attention + gradient-based feature attribution (not SHAP)
+The PS allows either SHAP or attention, noting attention is "likely simpler
+given the temporal Transformer/GNN attention already in the model." Two
+genuine, model-internal methods were implemented — deliberately not the
+Phase 4 heuristic stub, which remains attached only for side-by-side
+comparison:
+
+1. **GNN edge attention** (`explain/attention.py`): `GNNEncoder` (Phase 3)
+   was built on `TransformerConv` specifically so this would be free —
+   `return_attention_weights=True` is now wired into `GNNEncoder.forward()`,
+   averaged across heads and layers, with zero effect on trained weights (no
+   new parameters). Answers "which flow drove this."
+2. **Input×Gradient feature attribution** (`explain/saliency.py`): a single
+   backward pass giving `|input × d(attack_logit)/d(input)|` per node/edge
+   feature. Chosen over SHAP because exact/approximate SHAP needs many
+   forward passes over masked feature coalitions and doesn't map cleanly
+   onto a variable-size batched graph; a direct gradient is cheap,
+   well-established (Simonyan et al. 2013-style saliency), and — crucially —
+   works identically regardless of temporal core (LSTM has no attention
+   mechanism at all, so this is the *only* genuine attribution method
+   available for the model actually trained in Phase 3). Answers "which
+   specific flags/ports/flow statistics drove it," at the feature-name
+   level, plus a bonus `per_window_saliency` breakdown ("which past context
+   window mattered most") that attention can't give for an LSTM core.
+
+`explain/explainer.py` unifies both into one `ExplanationRecord` with a
+human-readable `summary` string, and deliberately reuses
+`rollout.engine.run_rollout(..., k=1)` for the probability/stage rather than
+reimplementing that forward pass a third time — it explains exactly the
+prediction the rollout engine reports as step 1, by construction.
+`rollout/engine.py` now also attaches both methods' output directly to every
+`RolloutResult` (`attention_flows`, `feature_saliency`), alongside the
+existing Phase 4 stub (`driving_context_flows`) for comparison — satisfying
+"no black-box outputs, every prediction ships with this attached" for the
+K-step forecast, not just single predictions.
+
+### A real bug found and fixed while verifying against live data
+Raw attention weights are a softmax **per target node** over its incoming
+edges only — an edge with weight 1.0 into a host with a single incoming
+edge carries *zero* information (there was no competition), while 0.6 among
+5 real competitors is a much stronger, more informative signal. The first
+version of `top_edges_overall` ranked by raw attention weight and was
+verified against the real held-out DDoS day to **bury the actual attack
+edge** (`172.16.0.1 -> 192.168.10.50`, 6,264 flows, 46MB, attention=0.62
+among 7 competitors) beneath several trivial single-choice targets scoring a
+meaningless 1.0. Fixed by ranking on `attention_concentration`
+(`attention_weight × num_competitors`) instead — re-verified: the real
+attack edge now correctly appears in the top-5. A regression test
+(`test_top_edges_overall_prefers_concentration_over_raw_weight`) encodes
+this exact scenario.
+
+### What's built
+- `models/gnn_encoder.py`: `return_attention` param added to `forward()`
+  (Phase 3 anticipated this; zero new parameters, existing checkpoint loads
+  unchanged).
+- `explain/attention.py`, `explain/saliency.py`, `explain/explainer.py`.
+- `rollout/engine.py` updated to attach both to every `RolloutResult`
+  (removed the function-level `@torch.no_grad()` decorator, scoping it to
+  just the rollout loop, since saliency needs gradients in the same call).
+- `scripts/explain_prediction.py` — CLI for a single structured,
+  human-readable explanation.
+- 13 new unit tests (71 total, all passing), including the concentration-
+  ranking regression test above.
+
+### Verified against real data (held-out DDoS day, window 40 — inside the attack)
+```
+Predicted 56% infiltration probability ... mapped to MITRE stage
+'Reconnaissance' (basis: heuristic_fallback). Most-attended flow:
+192.168.10.50 -> 192.168.10.15 (attention=0.38, ...). Top contributing
+host-level features: out_urg_cnt_sum, in_ack_cnt_sum, out_ack_cnt_sum.
+Top contributing flow-level features: ack_cnt_sum, urg_cnt_sum, syn_cnt_sum.
+```
+Reported honestly rather than cherry-picked: the single *most*-attended flow
+in this window was not the attack edge (attention doesn't always spotlight
+the true cause) — but the real attack edge does surface in the concentration-
+ranked top-5, with a competitively-earned 0.62 attention weight, which a
+naive global ranking had been hiding entirely until the fix above.
+
+### What's stubbed / TODO
+- Transformer-temporal-core self-attention (a second, complementary
+  "which past window mattered" signal specific to that core) is not wired
+  up — the model actually trained and shipped in Phase 3 uses LSTM, which
+  has no attention mechanism at all, making this a low-value gap to chase
+  further right now; `per_window_saliency` already answers the same
+  question for any core.
+- No quantitative faithfulness evaluation (e.g. deletion/insertion curves)
+  of the attribution methods — Phase 6's benchmark is a better place to
+  spend evaluation effort.
+
+### How to run
+```bash
+# Unit tests
+./.venv/bin/python -m pytest -q
+
+# Explain one prediction (structured + human-readable)
+./.venv/bin/python scripts/explain_prediction.py --day Friday-Afternoon-DDoS \
+    --start-window 40 --context-len 20 --json-out /tmp/explanation.json
+
+# Every rollout now also carries real attention/saliency automatically
+./.venv/bin/python scripts/run_rollout.py --day Friday-Afternoon-DDoS \
+    --start-window 40 --context-len 20 --k 10
 ```
