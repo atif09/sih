@@ -1,0 +1,53 @@
+# Phase 1 pipeline configuration.
+# Every value here is read by features/*.py at runtime (no hardcoded magic numbers
+# in the extractor code) so experiments can be reproduced by pointing at a config.
+
+feature_extraction:
+  # Size of the time window used to bucket flows/packets into a single network
+  # "state" observation (Phase 2 will treat one window == one graph snapshot S_t).
+  window_size_seconds: 60
+
+  # If true, windows are anchored to wall-clock boundaries (e.g. :00, :01, ...).
+  # If false, the first flow's timestamp is used as the anchor (window 0 starts
+  # at the first observed event, not the nearest clock boundary).
+  align_windows_to_clock: false
+
+  # Row cap applied when a CSV is read for a quick sanity check. Set to null to
+  # read the full file. Full training runs should not use this.
+  sample_rows_for_sanity_check: 20000
+
+normalization:
+  # Numeric columns are scaled with this method before being written to the
+  # merged feature matrix. "standard" = zero mean/unit variance (sklearn
+  # StandardScaler), "minmax" = scaled to [0, 1].
+  method: standard
+
+  # Columns which must never be scaled (identifiers, labels, timestamps).
+  exclude_from_scaling:
+    - src_ip
+    - dst_ip
+    - src_port
+    - dst_port
+    - protocol
+    - timestamp
+    - window_start
+    - window_id
+    - label
+    - label_binary
+
+paths:
+  # Primary dataset (finalized): CIC-IDS2017 "GeneratedLabelledFlows".
+  # NOTE the trailing space in the subfolder name -- "TrafficLabelling " --
+  # that's how the dataset ships it, not a typo. See features/datasets.py for
+  # the per-file registry (8 day/attack-type CSVs) and path-joining helpers;
+  # don't reconstruct this path with string concatenation elsewhere.
+  cicids2017_dir: "data/cicids2017/TrafficLabelling "
+
+  # Superseded by CIC-IDS2017 above but left configured since the files are
+  # already downloaded and the extractor is dataset-agnostic. Not used by
+  # default in scripts/sanity_check.py.
+  cicids2018_dir: data/cicids2018
+  cicids2018_pcap_dir: data/cicids2018-pcap
+
+  # Secondary held-out generalization test (Phase 3), unchanged.
+  ctu13_dir: data/ctu13

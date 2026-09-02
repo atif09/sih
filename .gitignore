@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Datasets (large, fetched separately per README instructions)
+data/cicids2017/**/*.csv
+data/cicids2018/*.csv
+data/cicids2018-pcap/**/*.pcap
+data/ctu13/**/*.pcap
+data/ctu13/**/*.csv
+data/*.DS_Store
+!data/**/.gitkeep
+
+# Model artifacts / checkpoints (Phase 3+)
+*.pt
+*.pth
+*.ckpt
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Test / cache
+.pytest_cache/
+.coverage
