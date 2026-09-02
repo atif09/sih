@@ -45,6 +45,16 @@ from models.normalization import FeatureNormalizer
 DEFAULT_HELD_OUT_DAY = "Friday-Afternoon-DDoS"
 
 
+def snapshot_to_pyg_data(snapshot: GraphSnapshot, normalizer: FeatureNormalizer) -> Data:
+    """Convert one GraphSnapshot into a normalized PyG Data object. Shared by
+    GraphSequenceDataset (training) and rollout/engine.py (inference) so both
+    paths apply the exact same feature transform."""
+    x = torch.as_tensor(normalizer.transform_node(snapshot.node_features), dtype=torch.float32)
+    edge_attr = torch.as_tensor(normalizer.transform_edge(snapshot.edge_features), dtype=torch.float32)
+    edge_index = torch.as_tensor(snapshot.edge_index, dtype=torch.long)
+    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+
+
 def load_all_days(processed_dir: str | Path) -> dict[str, list[GraphSnapshot]]:
     """Loads every day's cached GraphSnapshot list (see
     scripts/build_graph_dataset.py). Raises FileNotFoundError naming which
@@ -159,10 +169,7 @@ class GraphSequenceDataset(Dataset):
         return self.sequences[idx]
 
     def _snapshot_to_data(self, snap: GraphSnapshot) -> Data:
-        x = torch.as_tensor(self.normalizer.transform_node(snap.node_features), dtype=torch.float32)
-        edge_attr = torch.as_tensor(self.normalizer.transform_edge(snap.edge_features), dtype=torch.float32)
-        edge_index = torch.as_tensor(snap.edge_index, dtype=torch.long)
-        return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+        return snapshot_to_pyg_data(snap, self.normalizer)
 
     def collate_fn(self, batch: list[list[GraphSnapshot]]):
         batch_size = len(batch)

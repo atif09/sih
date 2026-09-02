@@ -148,22 +148,27 @@ class WorldModel(nn.Module):
         }
 
     @torch.no_grad()
-    def rollout_step(self, h_prev: torch.Tensor, z_hat_prev: torch.Tensor, lstm_state=None):
+    def rollout_step(self, z_hat_prev: torch.Tensor, lstm_state=None):
         """One autoregressive step for Phase 4's K-step rollout: given the
-        current hidden state and the model's own previous latent prediction
-        (no ground truth available at inference), predict the next latent,
-        attack probability, and advance the temporal core by one step.
+        model's own previous latent prediction (no ground truth available at
+        inference) and the LSTM's carried-over state, predict the next
+        latent, attack probability, and advance the temporal core by one
+        step. `lstm_state` fully determines the recurrence -- there is no
+        separate `h_prev` input because the LSTM cell/hidden state tuple
+        already encodes everything from history needed to continue it.
 
-        Only meaningful for the LSTM temporal core (which has an explicit,
-        cheap single-step recurrence via `nn.LSTM`'s hidden state tuple).
-        The Transformer core's rollout instead re-runs over the growing
-        sequence each step, which Phase 4 will implement directly against
-        `forward()`/`encode_sequence()` rather than this method.
+        Only meaningful for the LSTM temporal core, which has an explicit,
+        O(1)-per-step recurrence via `nn.LSTM`'s hidden state tuple. See
+        rollout/engine.py for the Transformer-compatible rollout path, which
+        instead re-runs the (still causally-masked) encoder over the growing
+        latent sequence each step -- more expensive per step but works with
+        any `TemporalCore` via the generic `forward()` interface, no
+        model-internal state needed.
         """
-        if not isinstance(self.temporal, torch.nn.Module) or not hasattr(self.temporal, "lstm"):
+        if not hasattr(self.temporal, "lstm"):
             raise NotImplementedError(
                 "rollout_step is only implemented for the LSTM temporal core; "
-                "Phase 4 will add a Transformer-compatible rollout path."
+                "see rollout/engine.py for the Transformer-compatible path."
             )
         z_in = z_hat_prev.unsqueeze(1)  # (B, 1, D)
         h_out, lstm_state = self.temporal.lstm(z_in, lstm_state)
@@ -171,7 +176,9 @@ class WorldModel(nn.Module):
         z_hat_next = self.dynamics_head(h_t)
         combined = torch.cat([h_t, z_hat_next], dim=-1)
         attack_logit = self.attack_head(combined).squeeze(-1)
+        attack_type_logit = self.attack_type_head(combined) if self.attack_type_head is not None else None
         return {
             "h_t": h_t, "z_hat_next": z_hat_next,
-            "attack_logit": attack_logit, "lstm_state": lstm_state,
+            "attack_logit": attack_logit, "attack_type_logit": attack_type_logit,
+            "lstm_state": lstm_state,
         }

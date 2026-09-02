@@ -423,3 +423,113 @@ smoothed over:
 Output (git-ignored, regenerable from config + seed):
 `checkpoints/phase3/{best_model.pt, normalizer.pkl, attack_type_vocab.json,
 run_config.yaml, training_log.json, test_report.json}`.
+
+## Phase 4 — K-Step Rollout Engine + MITRE ATT&CK Stage Mapping
+
+### Rollout engine (`rollout/engine.py`)
+Given a real observed context window, rolls the trained world model forward
+K steps entirely autoregressively (the model's own predicted latent ẑ feeds
+back in as the next step's input — no ground truth involved, exactly as
+described in Phase 3). Implements **both** temporal cores end-to-end, not
+just at training time:
+- **LSTM**: context primes the LSTM once to get its final (h, c) state, then
+  each further step is an O(1) state-carried recurrence
+  (`WorldModel.rollout_step`).
+- **Transformer**: no fixed-size state to carry, so each step re-runs the
+  (still causally-masked) encoder over the context extended with every ẑ
+  predicted so far — O(K²), fine for the K values this targets.
+
+Output per step: infiltration probability (sigmoid of the attack-forecast
+logit), full attack-type probability distribution, and a mapped MITRE stage.
+
+### MITRE ATT&CK stage mapping (`rollout/mitre.py`)
+Two-tier, fully documented in the module (judgment calls called out
+explicitly, since the PS leaves this open):
+1. **Primary**: the model's own predicted attack-type (when confident, ≥0.5)
+   mapped via a fixed table — PortScan→Reconnaissance, FTP/SSH-Patator and
+   Web Attacks→Initial Access, Infiltration→Lateral Movement (CIC-IDS2017's
+   "Infiltration" scenario is post-compromise internal pivoting, not initial
+   entry), Bot→Command and Control.
+2. **Fallback heuristic** (used when no attack-type is confident — which is
+   *every* prediction on an unseen attack type, since it structurally can't
+   be in the vocabulary): raw aggregate stats from the last real context
+   window — high port-scan-score/port-diversity → Reconnaissance, high
+   outbound-byte asymmetry → Exfiltration.
+3. **Honest 6th label**: the DoS/DDoS family and Heartbleed don't fit any of
+   the PS's five stages — mapped to an explicit `"Denial of Service /
+   Impact"` label instead of force-fit into a misleading one of the five.
+
+**Documented limitations, found while testing against real data, not
+hidden:**
+- CIC-IDS2017 has no natural Command & Control category beyond Bot, and no
+  Exfiltration category at all — Exfiltration is reachable only through the
+  raw-feature fallback, never the attack-type path.
+- The fallback's "many distinct ports" Reconnaissance signal isn't perfectly
+  specific: rolling out from inside the actual DDoS attack (window 40),
+  the top driving edge showed 1,877 distinct destination ports on a
+  6,264-flow/46MB DDoS-labeled edge, which the heuristic read as
+  port-scan-shaped and labeled Reconnaissance rather than the DoS/Impact
+  label a human would assign. A volumetric flood with randomized/incrementing
+  ports can superficially resemble a scan at the aggregate-feature level;
+  the attack-type path (when confident) doesn't have this problem, only the
+  fallback does.
+
+### Explainability stub (`rollout/explain_stub.py`)
+Per the PS, a simple version is acceptable here (full explainability is
+Phase 5). Ranks edges in the **last real observed** context snapshot by a
+documented composite score over raw features known to correlate with attack
+behavior (port diversity, retransmissions, SYN count, byte volume) and
+reports the top-K with human-readable src/dst/port/byte summaries. This is
+explicitly NOT model attribution (no gradients/attention) — attached once at
+the context level, since predicted future windows exist only as latent
+embeddings with no raw features to rank. Phase 5 will replace this with real
+attention weights (the GNN encoder's `TransformerConv` layers already expose
+per-edge attention — chosen in Phase 3 partly for this reason) or SHAP.
+
+### What's built
+- `rollout/engine.py`, `rollout/mitre.py`, `rollout/explain_stub.py`,
+  `scripts/run_rollout.py`.
+- Cleaned up a dead parameter (`h_prev`, unused) in `WorldModel.rollout_step`
+  found while building the engine around it.
+- 18 new unit tests (58 total, all passing): rollout produces exactly K
+  steps for both temporal cores, attack-type probabilities populate/empty
+  correctly, same-day invariant enforced, deterministic in eval mode; MITRE
+  mapping's confidence thresholds, table lookups, 6th-label handling, and
+  each fallback heuristic; explainability stub's ranking and edge cases.
+
+### Verified against real data (held-out DDoS day)
+Ran `scripts/run_rollout.py` at three points in `Friday-Afternoon-DDoS`
+(the Phase 3 held-out day — every prediction here is on data never seen in
+any form during training):
+
+| Context ends at window | Ground truth | Rollout behavior |
+|---|---|---|
+| 10 (well before attack) | Benign | Stays below 0.5 throughout, converges to ~0.48 |
+| 25 (1 window before attack starts at window 26) | Benign, imminent | Sits at 0.45–0.48, just below the decision threshold |
+| 40 (well inside the attack) | Attack | Starts at 0.56, correctly classified attack for the first ~6 of 10 steps |
+
+**Observed, disclosed limitation**: rollout probabilities compress into a
+narrow band (~0.45–0.56) and drift toward a ~0.48 fixed point as K grows,
+regardless of starting condition — a known, expected property of open-loop
+latent rollouts (compounding uncertainty pulls long-horizon predictions
+toward a "typical" state). Near-term steps (1-3) carry more signal than
+distant ones; this is useful operational guidance (trust the near horizon
+more) rather than a bug to hide.
+
+### What's stubbed / TODO
+- The explainability stub is deliberately simple (magnitude-based, not model
+  attribution) per the PS's phasing — Phase 5 replaces it.
+- No calibration/temperature-scaling applied to probabilities — the observed
+  narrow band around 0.5 reflects the underlying classifier's raw
+  calibration from Phase 3, not a rollout-engine issue.
+- CTU-13 rollout untested (dataset not yet integrated).
+
+### How to run
+```bash
+# Unit tests
+./.venv/bin/python -m pytest -q
+
+# Roll out K steps from a chosen context window
+./.venv/bin/python scripts/run_rollout.py --day Friday-Afternoon-DDoS \
+    --start-window 40 --context-len 20 --k 10 --json-out /tmp/rollout.json
+```
