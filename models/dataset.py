@@ -104,6 +104,41 @@ def build_attack_type_vocab(day_snapshots: dict[str, list[GraphSnapshot]], held_
     return sorted(types)
 
 
+def split_day_snapshots(
+    day_snapshots: dict[str, list[GraphSnapshot]],
+    held_out_day: str,
+    val_fraction: float,
+) -> tuple[dict[str, list[GraphSnapshot]], dict[str, list[GraphSnapshot]], list[GraphSnapshot]]:
+    """The single source of truth for the day-level train/val/test split
+    (see module docstring for the chronological-per-day rationale). Returns
+    train/val as {day: snapshots} dicts -- kept per-day, not flattened, so
+    callers that need to build within-day sequences or consecutive pairs
+    (baseline/features.py) can do so without accidentally spanning a day
+    boundary. Test is a single list (the held-out day only).
+
+    `build_split` (world model sequences) and `get_train_region_snapshots`
+    (normalizer fitting) and `baseline/features.py`'s pair-builder (Phase 6)
+    all call this rather than re-deriving the split point independently, so
+    every consumer of "the split" is guaranteed to agree on it.
+    """
+    if held_out_day not in day_snapshots:
+        raise ValueError(f"held_out_day={held_out_day!r} not found among days: {list(day_snapshots)}")
+
+    train_by_day: dict[str, list[GraphSnapshot]] = {}
+    val_by_day: dict[str, list[GraphSnapshot]] = {}
+    test_snapshots: list[GraphSnapshot] = []
+
+    for day, snapshots in day_snapshots.items():
+        if day == held_out_day:
+            test_snapshots = snapshots
+            continue
+        split_point = int(len(snapshots) * (1.0 - val_fraction))
+        train_by_day[day] = snapshots[:split_point]
+        val_by_day[day] = snapshots[split_point:]
+
+    return train_by_day, val_by_day, test_snapshots
+
+
 def get_train_region_snapshots(
     day_snapshots: dict[str, list[GraphSnapshot]],
     held_out_day: str,
@@ -114,12 +149,10 @@ def get_train_region_snapshots(
     an unbiased sample of individual windows -- fitting on `build_split`'s
     train *sequences* instead would over-weight windows that appear in
     multiple overlapping sequences (when seq_stride < seq_len)."""
+    train_by_day, _val_by_day, _test = split_day_snapshots(day_snapshots, held_out_day, val_fraction)
     pooled: list[GraphSnapshot] = []
-    for day, snapshots in day_snapshots.items():
-        if day == held_out_day:
-            continue
-        split_point = int(len(snapshots) * (1.0 - val_fraction))
-        pooled.extend(snapshots[:split_point])
+    for snapshots in train_by_day.values():
+        pooled.extend(snapshots)
     return pooled
 
 
@@ -130,22 +163,15 @@ def build_split(
     held_out_day: str = DEFAULT_HELD_OUT_DAY,
     val_fraction: float = 0.2,
 ) -> tuple[list[list[GraphSnapshot]], list[list[GraphSnapshot]], list[list[GraphSnapshot]]]:
-    if held_out_day not in day_snapshots:
-        raise ValueError(f"held_out_day={held_out_day!r} not found among days: {list(day_snapshots)}")
+    train_by_day, val_by_day, test_snapshots = split_day_snapshots(day_snapshots, held_out_day, val_fraction)
 
     train_seqs: list[list[GraphSnapshot]] = []
     val_seqs: list[list[GraphSnapshot]] = []
-    test_seqs: list[list[GraphSnapshot]] = []
-
-    for day, snapshots in day_snapshots.items():
-        if day == held_out_day:
-            test_seqs.extend(build_day_sequences(snapshots, seq_len, seq_stride))
-            continue
-        split_point = int(len(snapshots) * (1.0 - val_fraction))
-        train_region = snapshots[:split_point]
-        val_region = snapshots[split_point:]
-        train_seqs.extend(build_day_sequences(train_region, seq_len, seq_stride))
-        val_seqs.extend(build_day_sequences(val_region, seq_len, seq_stride))
+    for snapshots in train_by_day.values():
+        train_seqs.extend(build_day_sequences(snapshots, seq_len, seq_stride))
+    for snapshots in val_by_day.values():
+        val_seqs.extend(build_day_sequences(snapshots, seq_len, seq_stride))
+    test_seqs = build_day_sequences(test_snapshots, seq_len, seq_stride)
 
     return train_seqs, val_seqs, test_seqs
 

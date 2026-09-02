@@ -102,7 +102,16 @@ def _flatten_progression_mask(batch: dict) -> np.ndarray:
 
 
 @torch.no_grad()
-def evaluate(model: WorldModel, loader: DataLoader, device: torch.device, weights: dict, pos_weight: torch.Tensor | None = None) -> dict:
+def evaluate(
+    model: WorldModel, loader: DataLoader, device: torch.device, weights: dict,
+    pos_weight: torch.Tensor | None = None, return_raw: bool = False,
+):
+    """Returns the metrics dict as before. If return_raw=True, returns
+    (metrics, labels, probs) instead -- the flattened ground-truth labels
+    and predicted probabilities across every evaluated position, used by
+    benchmark/run_benchmark.py (Phase 6) to compute metrics (e.g. false
+    positive rate) not already in the metrics dict, on the exact same raw
+    predictions rather than re-running the model."""
     model.eval()
     all_logits, all_labels, all_progression_mask = [], [], []
     loss_accum: dict[str, float] = {}
@@ -159,6 +168,8 @@ def evaluate(model: WorldModel, loader: DataLoader, device: torch.device, weight
     else:
         metrics["benign_to_attack_recall"] = float("nan")
 
+    if return_raw:
+        return metrics, labels, probs
     return metrics
 
 
