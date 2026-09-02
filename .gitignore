@@ -17,7 +17,9 @@ data/ctu13/**/*.csv
 data/*.DS_Store
 !data/**/.gitkeep
 
-# Model artifacts / checkpoints (Phase 3+)
+# Model artifacts / checkpoints (Phase 3+) -- regenerable via
+# models/train.py + configs/training.yaml + the fixed seed
+checkpoints/
 *.pt
 *.pth
 *.ckpt

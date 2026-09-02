@@ -1,5 +1,4 @@
 # Phase 1 dependencies (feature extraction pipeline).
-# Phase 3 will add: torch, torch-geometric.
 # Phase 6 will add: scikit-learn (already listed below, used for baseline + scaling).
 
 pandas>=2.2
@@ -9,3 +8,7 @@ scapy>=2.5
 pyyaml>=6.0
 tqdm>=4.66
 pytest>=8.0
+
+# Phase 3: world model (GNN + temporal layer).
+torch>=2.10
+torch_geometric>=2.6

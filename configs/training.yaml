@@ -1,0 +1,59 @@
+# Phase 3 world model training configuration. Every hyperparameter used by
+# models/train.py lives here so a run is fully reproducible from this file +
+# the seed alone.
+
+seed: 42
+
+data:
+  processed_dir: data/processed/cicids2017
+
+  # Sliding-window sequence construction (models/dataset.py).
+  seq_len: 20        # context length in windows (20 * window_size_seconds = 20 min at the Phase 1 default)
+  seq_stride: 5      # 75% overlap -- more training sequences from the same underlying data
+
+  # PS requirement: hold out one full attack type/day entirely from
+  # training to prove generalization to unseen attack patterns. DDoS is a
+  # distinct volumetric attack, behaviorally unlike the other 6 non-benign
+  # days -- a meaningfully "unseen pattern" test, not just an unseen day.
+  # Swap this to test a different hold-out (e.g. Friday-Afternoon-PortScan,
+  # the other day the user flagged as a good candidate).
+  held_out_day: "Friday-Afternoon-DDoS"
+
+  # Chronological (not random) split of each remaining day's windows: first
+  # (1 - val_fraction) by time -> train, last val_fraction -> val. See
+  # models/dataset.py's module docstring for why random shuffling would leak.
+  val_fraction: 0.2
+
+model:
+  # Kept deliberately modest relative to dataset size (~170-400 training
+  # sequences depending on stride): an earlier run with gnn_hidden_dim=64 /
+  # temporal_hidden_dim=128 (483K params) overfit within ~3 epochs (val AUC
+  # peaked early then degraded). Smaller + more regularization traded a
+  # higher-capacity fit for one that actually holds up on held-out time.
+  latent_dim: 64
+  gnn_hidden_dim: 32
+  gnn_num_layers: 2
+  gnn_heads: 4
+  temporal_type: lstm   # lstm | transformer -- swappable, see models/temporal.py
+  temporal_hidden_dim: 64
+  temporal_num_layers: 1
+  temporal_num_heads: 4   # only used when temporal_type == transformer
+  dropout: 0.3
+
+train:
+  batch_size: 32
+  epochs: 40
+  lr: 0.0005
+  weight_decay: 0.0001
+  # Combined loss = dynamics_loss_weight * MSE(z_hat, z_target.detach())
+  #               + attack_loss_weight * BCE(attack_logits, attack_label)
+  #               + attack_type_loss_weight * BCE(attack_type_logits, attack_type_target)
+  dynamics_loss_weight: 1.0
+  attack_loss_weight: 1.0
+  attack_type_loss_weight: 0.5
+  early_stopping_patience: 8
+  # auto | cpu | mps | cuda -- "auto" picks the best available device.
+  device: auto
+
+output:
+  checkpoint_dir: checkpoints/phase3
