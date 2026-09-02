@@ -7,8 +7,9 @@ PS 26153.
 ## Project layout
 
 ```
-data/            Dataset storage (cicids2018/, cicids2018-pcap/, ctu13/) + data-loading code
+data/            Dataset storage (cicids2017/, cicids2018/, cicids2018-pcap/, ctu13/) + data-loading code
 features/        Phase 1: flow-level + packet-level feature extraction, windowing/merge
+graph/           Phase 2: graph state representation + ground-truth transition extraction
 models/          Phase 3: world model (GNN + temporal layer)
 rollout/         Phase 4: K-step forward simulation + MITRE ATT&CK stage mapping
 explain/         Phase 5: explainability (attention / SHAP)
@@ -184,3 +185,112 @@ since it carries no information not already in the first occurrence.
 
 Pipeline behavior (window size, normalization method, dataset paths) is
 configured in `configs/pipeline.yaml`, not hardcoded in the extractor code.
+
+## Phase 2 — Graph State Representation + Ground-Truth Transition Extraction
+
+### Design decisions (documented in full in `graph/snapshot.py`'s docstring)
+- **Nodes** = hosts (IP addresses) active (as flow source or destination) in
+  a time window. Graph size varies window-to-window — expected, and what the
+  Phase 3 GNN encoder is for.
+- **Edges** = one aggregated *directed* edge per `(src_ip, dst_ip)` pair per
+  window (not one edge per raw flow) — e.g. a 30-port scan against one target
+  in one window collapses to a single edge with `dst_port_nunique=30`,
+  keeping graph size proportional to host *relationships*, not packet count.
+- **Features are aggregated, not re-derived**, from Phase 1's per-flow
+  columns (37 node features, 24 edge features — see `NODE_FEATURE_NAMES`/
+  `EDGE_FEATURE_NAMES` in `graph/snapshot.py`), split by out/in direction for
+  nodes so a host's outbound behavior (e.g. scanning) and inbound behavior
+  (e.g. being flooded) don't wash each other out.
+- **Labels are kept separate from features** — `node_labels`/`edge_labels`/
+  `graph_attack_present` are training targets derived from ground truth,
+  never fed back in as model input.
+- **Not normalized here.** Phase 3 holds out a full day for generalization
+  testing; normalizing before that split would leak the held-out
+  distribution into training. Phase 2 outputs raw aggregated values.
+- **Windows are gap-filled**: every integer `window_id` from min to max is
+  materialized per day, including zero-flow windows (as an explicit empty
+  graph), so a fixed-Δt sequence model sees uniform time steps.
+- **Transitions never cross a day boundary** (`graph/transitions.py`) — each
+  CIC-IDS2017 day is an independent capture, even though the private IP
+  space is reused across days.
+- **`transition_type`** buckets each `(S_t, S_t+1)` pair into
+  `benign_to_benign` / `benign_to_attack` / `attack_to_attack` /
+  `attack_to_benign` from the PS's "label whether/how the state is
+  progressing toward an attack" requirement. `benign_to_attack` is the
+  specific progression moment a forecaster should be judged on catching
+  early (Phase 6 benchmark should report recall on this category
+  specifically, not just overall accuracy).
+
+### What's built
+- `graph/snapshot.py` — `build_snapshots_for_day()`: vectorized pandas
+  aggregation (no per-flow Python loops) from Phase 1's merged/windowed flow
+  table into one `GraphSnapshot` per window.
+- `graph/transitions.py` — `build_transitions()`: turns a day's ordered
+  snapshots into `(S_t, S_t+1, attack_label_next, attack_types_next,
+  transition_type)` records.
+- `graph/io.py` — pickle + JSON-summary persistence per day.
+- `scripts/build_graph_dataset.py` — builds and saves the dataset for all 8
+  CIC-IDS2017 files (or `--day <name>` / `--rows <n>` for a subset/sample).
+- 9 unit tests on hand-crafted synthetic windowed data covering edge
+  aggregation/direction, node attack-source/target/both labeling, port-scan
+  signal propagation onto nodes, gap-filling, transition-type derivation,
+  and the same-day-only invariant.
+
+### Verified against real data
+Ran `scripts/build_graph_dataset.py` on all 8 real CIC-IDS2017 files
+(full files, no row cap) — **41 seconds total**, ~2.7M flows processed:
+
+| Day | Windows (empty) | Attack transitions | Attack types found |
+|---|---|---|---|
+| Monday | 720 (233) | 0 | — (benign day, as expected) |
+| Tuesday | 720 (232) | 127 | FTP-Patator, SSH-Patator |
+| Wednesday | 720 (211) | 86 | DoS GoldenEye/Hulk/Slowloris/Slowhttptest, Heartbleed |
+| Thursday-Morning | 241 (0) | 68 | Web Attack (Brute Force/XSS/SQLi) |
+| Thursday-Afternoon | 245 (0) | 28 | Infiltration |
+| Friday-Morning | 241 (0) | 163 | **Bot** (see note below) |
+| Friday-Afternoon-PortScan | 150 (0) | 27 | PortScan |
+| Friday-Afternoon-DDoS | 93 (0) | 21 | DDoS |
+
+Two real-data findings surfaced while validating (both handled correctly by
+existing Phase 1 code, not new bugs — documented here for the record):
+1. **Thursday-Morning-WebAttacks has 62.9% of rows with a genuinely empty
+   `Timestamp` field in the raw CSV** (288,602 of 458,968 rows) — a known
+   quality issue in this specific CIC-IDS2017 file, not a parsing bug.
+   `windowing.py` already drops unparsable/missing timestamps with a logged
+   count; the remaining 170,366 rows are used. This file also uses a
+   different timestamp format than the others (`M/D/YYYY H:MM`, no seconds,
+   no leading zeros) — confirmed parsing correctly as day-first (e.g. `6/7/2017`
+   → July 6, 2017, a Thursday, matching the dataset's documented July 3–7
+   2017 capture week).
+2. **Friday-WorkingHours-Morning is not "benign only"** despite how it was
+   described — the real Label column contains **Bot** (botnet/ARES) traffic
+   (163/240 windows show attack-present-next), matching CIC-IDS2017's
+   official documentation of this capture (Friday morning = Botnet day).
+   `features/datasets.py`'s registry has been corrected to reflect this.
+
+### What's stubbed / TODO
+- Packet-level columns are still all zero (`packet_features_available=False`
+  throughout) — no PCAPs provided yet, same status as Phase 1.
+- CTU-13 ingestion (different schema) still deferred to Phase 3, when it's
+  used as the secondary held-out generalization test.
+- No train/val/test split yet — that's explicitly Phase 3's job (and must
+  hold out a full day/attack-type, per the PS). Phase 2 only guarantees the
+  `day` field is present on every snapshot/transition so Phase 3 can filter
+  by it. Friday's PortScan or DDoS file remain good hold-out candidates, as
+  discussed.
+
+### How to run
+```bash
+# Unit tests
+./.venv/bin/python -m pytest -q
+
+# Build + persist the graph-sequence dataset for all 8 days (~41s, full files)
+./.venv/bin/python scripts/build_graph_dataset.py
+
+# One day only, or row-capped for a quick smoke test
+./.venv/bin/python scripts/build_graph_dataset.py --day Tuesday
+./.venv/bin/python scripts/build_graph_dataset.py --rows 50000
+```
+Output: `data/processed/cicids2017/<day>.pkl` (snapshots + transitions,
+regenerable cache, git-ignored) and `<day>_summary.json` (small, human-
+readable — also git-ignored, but printed to console by the build script).

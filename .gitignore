@@ -4,6 +4,10 @@ __pycache__/
 .venv/
 *.egg-info/
 
+# Phase 2: graph-sequence dataset cache (regenerable via
+# scripts/build_graph_dataset.py from the raw CSVs + code)
+data/processed/
+
 # Datasets (large, fetched separately per README instructions)
 data/cicids2017/**/*.csv
 data/cicids2018/*.csv

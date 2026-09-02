@@ -67,7 +67,12 @@ CICIDS2017_FILES: tuple[CICIDS2017File, ...] = (
         "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv", "Thursday-Afternoon",
         ("Infiltration",),
     ),
-    CICIDS2017File("Friday-WorkingHours-Morning.pcap_ISCX.csv", "Friday-Morning", ("Benign",)),
+    # NOTE: despite sometimes being described as "benign only", this file's
+    # actual Label column contains Botnet (ARES) traffic -- confirmed against
+    # the real downloaded data (163/240 windows show attack-present-next) and
+    # consistent with CIC-IDS2017's official documentation of this capture
+    # (Friday morning = Botnet day). attack_categories reflects the real data.
+    CICIDS2017File("Friday-WorkingHours-Morning.pcap_ISCX.csv", "Friday-Morning", ("Benign", "Bot")),
     CICIDS2017File(
         "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv", "Friday-Afternoon-PortScan",
         ("PortScan",),
