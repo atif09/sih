@@ -12,3 +12,11 @@ pytest>=8.0
 # Phase 3: world model (GNN + temporal layer).
 torch>=2.10
 torch_geometric>=2.6
+
+# Phase 7: backend API. cicflowmeter converts a standalone PCAP upload into
+# a flow-level CSV matching our canonical schema (see
+# features/pcap_to_flows.py for a documented upstream-bug workaround).
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+cicflowmeter>=0.5

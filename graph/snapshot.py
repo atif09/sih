@@ -152,7 +152,15 @@ def _aggregate_edges(window_df: pd.DataFrame) -> pd.DataFrame:
         return result
 
     def _attack_types(s: pd.Series) -> frozenset:
-        return frozenset(v for v in s.unique() if str(v).strip().lower() != "benign")
+        # Real (unlabeled) inference-time uploads have no Label column --
+        # flow_features.py sets label to NaN in that case, not the string
+        # "Benign". Filtering only "benign" (case-insensitively) would let
+        # NaN through and produce a spurious attack-type literally named
+        # "nan" (str(float('nan')) == "nan"). pd.isna() catches both.
+        return frozenset(
+            v for v in s.unique()
+            if not pd.isna(v) and str(v).strip().lower() != "benign"
+        )
 
     agg = window_df.groupby(["window_id", "src_ip", "dst_ip"]).agg(
         flow_count=("label", "size"),
@@ -257,7 +265,21 @@ def build_snapshots_for_day(
         return []
 
     windowed_df = windowed_df.copy()
-    windowed_df["src_ip"] = windowed_df["src_ip"].astype(str)
+    if "label_binary" in windowed_df.columns:
+        # Real (unlabeled) inference-time uploads have no ground truth --
+        # flow_features.py leaves label_binary as NaN in that case (see its
+        # docstring). Casting NaN straight to int64 later (edge_label,
+        # is_attack_source/target) is undefined behavior in numpy -- it does
+        # NOT reliably raise; it has been observed to silently produce a
+        # platform/version-dependent garbage integer, which could make
+        # graph_attack_present spuriously True from a cast artifact rather
+        # than real signal. Filled explicitly to 0 here: for unlabeled data
+        # this makes graph_attack_present/edge_labels/node_labels a
+        # meaningless placeholder (always "no attack"), not real ground
+        # truth -- callers doing pure inference (api/, rollout/) never rely
+        # on these fields anyway; only training (Phase 3) needs them to be
+        # real, and training data always has genuine labels.
+        windowed_df["label_binary"] = windowed_df["label_binary"].fillna(0)
     windowed_df["dst_ip"] = windowed_df["dst_ip"].astype(str)
 
     edge_agg = _aggregate_edges(windowed_df)

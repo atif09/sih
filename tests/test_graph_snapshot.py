@@ -37,7 +37,8 @@ def _row(window_id, window_start, src_ip, dst_ip, dst_port=80, label="BENIGN", *
         "tot_bytes": 100, "tot_pkts": 2, "duration_us": 1000, "flow_iat_mean": 500.0,
         "flag_bitmask": 0b000001, "down_up_ratio": 1.0, "fwd_bwd_byte_ratio": 1.0,
         "packet_features_available": False,
-        "label": label, "label_binary": 0 if label.upper() == "BENIGN" else 1,
+        "label": label,
+        "label_binary": 0 if isinstance(label, str) and label.upper() == "BENIGN" else 1,
     })
     row.update(overrides)
     return row
@@ -132,3 +133,22 @@ def test_gap_filling_produces_empty_windows():
 def test_empty_dataframe_returns_no_snapshots():
     df = pd.DataFrame(columns=REQUIRED_COLS)
     assert build_snapshots_for_day(df, day="TestDay") == []
+
+
+def test_missing_labels_handled_gracefully_not_as_spurious_attack():
+    """Regression test: real (unlabeled) inference-time uploads have no
+    Label column -- features/flow_features.py leaves label/label_binary as
+    NaN in that case. This must not (a) crash on the NaN->int64 cast for
+    edge_labels/node_labels, or (b) produce a spurious attack type literally
+    named "nan" (str(float('nan')) == "nan", which a naive
+    != "benign" string filter would let through)."""
+    df = pd.DataFrame([
+        _row(0, 0.0, "10.0.0.1", "10.0.0.2", label=np.nan, label_binary=np.nan),
+    ])
+    snapshots = build_snapshots_for_day(df, day="TestDay")
+    snap = snapshots[0]
+    assert snap.edge_labels.dtype == np.int64
+    assert (snap.edge_labels == 0).all()
+    assert snap.graph_attack_types == frozenset()
+    assert snap.graph_attack_present is False
+    assert "nan" not in snap.graph_attack_types

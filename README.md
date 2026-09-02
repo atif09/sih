@@ -734,3 +734,123 @@ AUC remains the statistically meaningful, primary result for both models.
 # Run the benchmark, regenerating benchmark/report.md
 ./.venv/bin/python benchmark/run_benchmark.py
 ```
+
+## Phase 7 — Backend API (FastAPI)
+
+### Scope decision: standalone PCAP support via the real CICFlowMeter, not a reimplementation
+Phase 1 built packet-level features (`features/packet_features.py`) as a
+*supplement* to CSV-derived flow-level features, not a replacement — it
+doesn't compute the flag counts, IAT statistics, etc. the trained model's
+37 node / 24 edge features depend on. Rather than reimplement CICFlowMeter's
+flow-assembly logic from scratch, or silently degrade PCAP-only uploads, the
+user's own direction was to integrate the actual tool: `pip install
+cicflowmeter` (the same tool family that generated CIC-IDS2017/2018's
+training data) converts an uploaded PCAP into a flow-level CSV first, which
+then runs through the *existing, unmodified* Phase 1 pipeline
+(`features/pcap_to_flows.py`). `packet_features.py` still runs separately on
+the same raw PCAP for packet-level augmentation, exactly as designed. The
+column names matched our canonical schema with zero new aliases needed
+(verified empirically, not assumed).
+
+**Two real upstream bugs found and worked around** (documented in
+`features/pcap_to_flows.py`): (1) `cicflowmeter`'s own CLI calls its
+`create_sniffer()` with positional arguments in the wrong order, crashing on
+every single invocation regardless of flags — worked around by calling the
+library's internal API directly with correct keyword arguments; (2) its
+`AsyncSniffer` isn't wired up to flush completed flows when an offline
+capture ends, so the output CSV was created but silently empty (0 rows) —
+worked around with an explicit `session.garbage_collect(None)` after
+`sniffer.join()`.
+
+### Pipeline: full walk-forward timeline + K-step forecast + real explanation
+`POST /analyze` accepts a CSV, a PCAP, or both, and returns:
+- **`timeline`**: walk-forward — for every window with enough preceding
+  history, the model's 1-step-ahead prediction for the window right after
+  it (reconstructs how infiltration probability evolved across the whole
+  uploaded capture).
+- **`forecast`**: genuine K-step-ahead rollout (Phase 4) beyond the last
+  observed window, into the unobserved future.
+- **`flagged_flows`** + **`explanation`**: real GNN attention + gradient
+  attribution (Phase 5), attached to the single most decision-relevant
+  prediction (the present moment) rather than recomputed for every
+  timeline point, for response-time reasons documented in
+  `api/pipeline.py`.
+- **`warnings`**: non-fatal notices (no PCAP given, capture shorter than
+  the model's trained context length, etc.) — surfaced, never hidden.
+
+Model loaded once at FastAPI startup (`lifespan`), not per-request. Fully
+offline: the checkpoint is local, `cicflowmeter`/`scapy`/`torch` all run
+locally, no cloud API calls anywhere in the inference path.
+
+### A real bug found and fixed while testing
+The first real request returned an HTTP 500: `rollout.mitre.predict_stage`
+returns a `StagePrediction` dataclass, and Pydantic v2 doesn't automatically
+coerce an arbitrary dataclass into a `BaseModel` field. Fixed by converting
+explicitly to a plain dict before constructing the response
+(`api/pipeline.py`'s `_stage_to_dict`) — caught by an actual test request,
+not by inspection.
+
+### What's built
+- `api/schemas.py`, `api/pipeline.py`, `api/main.py`.
+- `features/pcap_to_flows.py` (the CICFlowMeter integration described above).
+- Fixed a real, separate bug found while testing with unlabeled data: real
+  uploads have no `Label` column, so `label_binary` is `NaN` — casting `NaN`
+  straight to `int64` (for `edge_labels`/`node_labels`) is undefined
+  behavior in numpy (observed to silently produce a garbage value rather
+  than raise), and a naive `!= "benign"` string filter let `NaN` through as
+  a spurious attack type literally named `"nan"`. Both fixed explicitly in
+  `graph/snapshot.py`, with a regression test.
+- 13 new unit/integration tests (95 total, all passing) using FastAPI's
+  `TestClient` — CSV-only, PCAP-only, both, missing-file 422, malformed-file
+  4xx/5xx (not a crash), too-short-capture 422, response schema shape,
+  `k` parameter respected.
+- **Tested against a real, running server** (not just in-process
+  `TestClient`) with `curl`, per the PS's requirement to prove this works
+  standalone before Phase 8: `/health`, `/model-info`, `/docs` (interactive
+  OpenAPI UI), and `/analyze` against a 150,000-row real CIC-IDS2017 CSV
+  slice spanning the actual transition into the DDoS attack (see below) and
+  a real standalone PCAP upload, both in a few seconds.
+
+### Verified against real data (150K rows, live server, not a test double)
+Uploaded a real, un-cached slice of `Friday-Afternoon-DDoS` spanning the
+benign-to-attack transition. The walk-forward timeline correctly tracks the
+shift:
+
+| window | infiltration probability | stage |
+|---|---|---|
+| 20 (benign) | 0.420 | Benign |
+| 30 (attack starting) | 0.540 | Reconnaissance (heuristic) |
+| 40 (in attack) | 0.558 | Reconnaissance (heuristic) |
+
+The K-step forecast from the end of the upload starts at 0.557 and decays
+toward the ~0.5 fixed point documented in Phase 4/5 — consistent, expected
+behavior, not a new artifact of the API layer.
+
+### What's stubbed / TODO
+- Per-window explanation isn't computed for every timeline point (only the
+  final prediction) — a documented, deliberate response-time/scope decision,
+  not an oversight.
+- No auth/rate-limiting (out of scope for an offline research prototype;
+  would matter before any real deployment).
+- CTU-13 untested against the API (dataset not yet integrated anywhere in
+  the project).
+
+### How to run
+```bash
+# Unit tests (requires a trained checkpoint at checkpoints/phase3/)
+./.venv/bin/python -m pytest -q
+
+# Start the server
+./.venv/bin/uvicorn api.main:app --port 8000
+
+# Interactive docs
+open http://localhost:8000/docs
+
+# Analyze a CSV
+curl -X POST http://localhost:8000/analyze \
+    -F "csv_file=@path/to/flows.csv"
+
+# Analyze a standalone PCAP (converted via cicflowmeter automatically)
+curl -X POST http://localhost:8000/analyze \
+    -F "pcap_file=@path/to/capture.pcap"
+```
