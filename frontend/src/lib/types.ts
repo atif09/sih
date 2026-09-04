@@ -179,28 +179,3 @@ export const MITRE_SIX_STAGES = [...MITRE_FIVE_STAGES, "Denial of Service / Impa
 export type MitreSixStage = (typeof MITRE_SIX_STAGES)[number]
 
 export const STAGE_BENIGN = "Benign / No Stage"
-
-// Model Validation panel -- live version of benchmark/report.md, served
-// from /model-validation. Model-level data (fixed at benchmark time), not
-// tied to any uploaded capture.
-export interface BenchmarkRow {
-  model: string
-  n: number
-  positive_rate: number
-  accuracy: number
-  precision: number
-  recall: number
-  f1: number
-  fpr: number
-  roc_auc: number
-}
-
-export interface ModelValidationResponse {
-  held_out_day: string
-  seq_len: number
-  validation: BenchmarkRow[]
-  held_out: BenchmarkRow[]
-  single_class_val_days: string[]
-  multi_class_val_days: string[]
-  ctu13_status: string
-}

@@ -2,16 +2,12 @@ import { IconReset } from "../../lib/icons"
 import { UploadPanel } from "../panels/UploadPanel"
 import type { AnalyzeResponse } from "../../lib/types"
 
-export type Mode = "live" | "response" | "replay" | "validation"
+export type Mode = "live" | "response" | "replay"
 
 const MODES: { id: Mode; label: string }[] = [
   { id: "live", label: "Mode 1: Live Feed" },
   { id: "response", label: "Mode 2: Response Center" },
   { id: "replay", label: "Mode 3: Attack Replay" },
-  // Not numbered like the 3 above -- this one isn't about an uploaded
-  // capture at all, it's a fixed property of the trained model itself
-  // (see ModelValidationPanel), so it's reachable with no analysis run yet.
-  { id: "validation", label: "Model Validation" },
 ]
 
 /**

@@ -11,7 +11,6 @@ import { CounterfactualPanel } from "./components/panels/CounterfactualPanel"
 import { AttackFingerprintPanel } from "./components/panels/AttackFingerprintPanel"
 import { ParallelFuturesPanel } from "./components/panels/ParallelFuturesPanel"
 import { ReplayPanel } from "./components/panels/ReplayPanel"
-import { ModelValidationPanel } from "./components/panels/ModelValidationPanel"
 import type { AnalyzeResponse } from "./lib/types"
 
 function EmptyState({ children }: { children: string }) {
@@ -89,12 +88,6 @@ function App({ onHome }: { onHome?: () => void }) {
         {mode === "replay" && (
           <section className="flex flex-1 flex-col gap-3 p-3">
             {result ? <ReplayPanel result={result} /> : <EmptyState>run an analysis on Mode 1: Live Feed first</EmptyState>}
-          </section>
-        )}
-
-        {mode === "validation" && (
-          <section className="flex flex-1 flex-col gap-3 p-3">
-            <ModelValidationPanel />
           </section>
         )}
       </main>

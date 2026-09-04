@@ -1,5 +1,5 @@
 import axios from "axios"
-import type { AnalyzeResponse, ModelValidationResponse, SimulateRequest, SimulateResponse } from "./types"
+import type { AnalyzeResponse, SimulateRequest, SimulateResponse } from "./types"
 
 // Vite dev server proxies /api -> http://localhost:8000 (see vite.config.ts).
 // No external hosts anywhere -- fully offline against the local backend.
@@ -50,13 +50,5 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function getModelInfo(): Promise<ModelInfoResponse> {
   const res = await client.get<ModelInfoResponse>("/model-info")
-  return res.data
-}
-
-// Fixed model-level benchmark (world model vs. logistic-regression
-// baseline), independent of any uploaded capture -- see
-// benchmark/run_benchmark.py and ModelValidationPanel.
-export async function getModelValidation(): Promise<ModelValidationResponse> {
-  const res = await client.get<ModelValidationResponse>("/model-validation")
   return res.data
 }

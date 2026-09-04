@@ -15,7 +15,6 @@ directly:
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import tempfile
@@ -28,14 +27,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.pipeline import InsufficientDataError, ModelBundle, run_pipeline, run_simulation
-from api.schemas import AnalyzeResponse, ErrorResponse, ModelValidationResponse, SimulateRequest, SimulateResponse
+from api.schemas import AnalyzeResponse, ErrorResponse, SimulateRequest, SimulateResponse
 from models.train import resolve_device
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_DIR = "checkpoints/phase3"
 DEFAULT_PIPELINE_CONFIG = "configs/pipeline.yaml"
-BENCHMARK_REPORT_PATH = Path("benchmark/report.json")
 
 _state: dict = {}
 
@@ -46,17 +44,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"Loading world model from {DEFAULT_CHECKPOINT_DIR} onto {device} ...")
     _state["bundle"] = ModelBundle.load(DEFAULT_CHECKPOINT_DIR, DEFAULT_PIPELINE_CONFIG, device)
     logger.info("Model loaded.")
-
-    # Benchmark result is a fixed, precomputed MODEL property (see
-    # benchmark/run_benchmark.py), not something derived from any request --
-    # loaded once at startup like the model itself, not recomputed per call.
-    if BENCHMARK_REPORT_PATH.exists():
-        _state["benchmark_report"] = json.loads(BENCHMARK_REPORT_PATH.read_text())
-        logger.info(f"Loaded benchmark report from {BENCHMARK_REPORT_PATH}.")
-    else:
-        _state["benchmark_report"] = None
-        logger.warning(f"{BENCHMARK_REPORT_PATH} not found -- /model-validation will 404 until `python benchmark/run_benchmark.py` is run.")
-
     yield
     _state.clear()
 
@@ -106,23 +93,6 @@ def model_info():
         "default_k": bundle.default_k,
         "n_parameters": sum(p.numel() for p in bundle.model.parameters()),
     }
-
-
-@app.get(
-    "/model-validation",
-    response_model=ModelValidationResponse,
-    responses={404: {"model": ErrorResponse}},
-)
-def model_validation():
-    """Live version of benchmark/report.md's static prose -- world model vs.
-    logistic-regression baseline, on the real validation split and the
-    held-out (unseen attack type) day, both computed once by
-    benchmark/run_benchmark.py and served here unchanged. Independent of any
-    /analyze call: this describes the MODEL, not a particular upload."""
-    report = _state.get("benchmark_report")
-    if report is None:
-        raise HTTPException(status_code=404, detail=f"No benchmark report found at {BENCHMARK_REPORT_PATH} -- run `python benchmark/run_benchmark.py` first.")
-    return ModelValidationResponse(**report)
 
 
 @app.post(

@@ -157,42 +157,6 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
-class BenchmarkRow(BaseModel):
-    """One model's metrics on one evaluation region -- see
-    benchmark/run_benchmark.py's `compute_metrics`. Field set matches that
-    function's real output exactly; nothing here is computed by the API,
-    only re-served from benchmark/report.json."""
-
-    model: str = Field(description="'World Model' or 'Baseline (LogReg)'")
-    n: int = Field(description="Number of examples this row's metrics were computed over")
-    positive_rate: float = Field(description="Fraction of these examples that were true attack windows -- class balance context for reading the metrics below")
-    accuracy: float
-    precision: float
-    recall: float
-    f1: float
-    fpr: float = Field(description="False positive rate")
-    roc_auc: float
-
-
-class ModelValidationResponse(BaseModel):
-    """Phase 6 benchmark (world model vs. logistic-regression baseline),
-    served live from the console's Model Validation panel rather than only
-    existing as static prose on the marketing page. This is a MODEL-level
-    property, computed once by benchmark/run_benchmark.py against the fixed
-    val/held-out regions -- not recomputed per request, since it has nothing
-    to do with whatever capture a user uploads to /analyze. See
-    benchmark/report.md for the full narrative version of these same
-    numbers."""
-
-    held_out_day: str = Field(description="The day excluded entirely from training -- its attack type is genuinely unseen by the model. This is the PS's 'held-out generalization test', evaluated on real CIC-IDS2017 data. CTU-13 (mentioned in CLAUDE.md as a SECOND, separate held-out generalization test) is a different dataset/schema and is not yet integrated -- see `ctu13_status`.")
-    seq_len: int = Field(description="World model's configured temporal context length, in windows -- the baseline sees exactly 1 window per prediction, by design, so this is the capability the benchmark exists to measure")
-    validation: list[BenchmarkRow] = Field(description="In-distribution: later chronological chunk of each non-held-out day, seen attack types")
-    held_out: list[BenchmarkRow] = Field(description="The held-out day above: unseen attack type, the PS's core generalization claim")
-    single_class_val_days: list[str] = Field(description="Non-held-out days whose validation chunk contains NO attack windows at all (their campaigns ended before capture end) -- disclosed because it explains why pooled validation AUC reads lower than the held-out day's")
-    multi_class_val_days: list[str] = Field(description="The only validation days with real class variation to measure ranking quality on")
-    ctu13_status: str = Field(default="CTU-13 (secondary held-out generalization test, different schema) is not yet integrated into this pipeline.", description="Honest status of the CLAUDE.md-listed secondary dataset -- stated plainly rather than displaying a fabricated result for it")
-
-
 class SimulateRequest(BaseModel):
     """Phase 9, Feature 3 -- Counterfactual Intervention Simulator. Acts on
     the context window from the MOST RECENT /analyze call in this server

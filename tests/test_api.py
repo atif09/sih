@@ -82,42 +82,6 @@ class TestHealth:
         assert body["n_parameters"] > 0
 
 
-class TestModelValidation:
-    """Console's live Model Validation panel -- see benchmark/report.json,
-    generated once by benchmark/run_benchmark.py, not recomputed per
-    request."""
-
-    def test_model_validation_served_from_precomputed_report(self, client):
-        resp = client.get("/model-validation")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["held_out_day"]
-        assert len(body["validation"]) == 2
-        assert len(body["held_out"]) == 2
-        models = {row["model"] for row in body["held_out"]}
-        assert models == {"World Model", "Baseline (LogReg)"}
-
-    def test_held_out_day_is_the_generalization_claim(self, client):
-        # The held-out day's whole point is proving generalization to an
-        # attack type never seen in training -- the world model's held-out
-        # metrics should be real, non-trivial numbers, not zeroed-out
-        # placeholders.
-        resp = client.get("/model-validation")
-        body = resp.json()
-        wm_row = next(r for r in body["held_out"] if r["model"] == "World Model")
-        assert wm_row["n"] > 0
-        assert 0.0 < wm_row["roc_auc"] <= 1.0
-
-    def test_ctu13_status_is_honest_not_fabricated(self, client):
-        # CTU-13 is listed in CLAUDE.md as a secondary held-out
-        # generalization test, but is not actually integrated anywhere in
-        # this pipeline (different schema, deferred) -- this must say so
-        # plainly rather than presenting an invented CTU-13 result.
-        resp = client.get("/model-validation")
-        body = resp.json()
-        assert "not yet integrated" in body["ctu13_status"].lower()
-
-
 class TestAnalyze:
     def test_analyze_requires_at_least_one_file(self, client):
         resp = client.post("/analyze")
