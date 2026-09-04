@@ -82,6 +82,42 @@ class TestHealth:
         assert body["n_parameters"] > 0
 
 
+class TestModelValidation:
+    """Console's live Model Validation panel -- see benchmark/report.json,
+    generated once by benchmark/run_benchmark.py, not recomputed per
+    request."""
+
+    def test_model_validation_served_from_precomputed_report(self, client):
+        resp = client.get("/model-validation")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["held_out_day"]
+        assert len(body["validation"]) == 2
+        assert len(body["held_out"]) == 2
+        models = {row["model"] for row in body["held_out"]}
+        assert models == {"World Model", "Baseline (LogReg)"}
+
+    def test_held_out_day_is_the_generalization_claim(self, client):
+        # The held-out day's whole point is proving generalization to an
+        # attack type never seen in training -- the world model's held-out
+        # metrics should be real, non-trivial numbers, not zeroed-out
+        # placeholders.
+        resp = client.get("/model-validation")
+        body = resp.json()
+        wm_row = next(r for r in body["held_out"] if r["model"] == "World Model")
+        assert wm_row["n"] > 0
+        assert 0.0 < wm_row["roc_auc"] <= 1.0
+
+    def test_ctu13_status_is_honest_not_fabricated(self, client):
+        # CTU-13 is listed in CLAUDE.md as a secondary held-out
+        # generalization test, but is not actually integrated anywhere in
+        # this pipeline (different schema, deferred) -- this must say so
+        # plainly rather than presenting an invented CTU-13 result.
+        resp = client.get("/model-validation")
+        body = resp.json()
+        assert "not yet integrated" in body["ctu13_status"].lower()
+
+
 class TestAnalyze:
     def test_analyze_requires_at_least_one_file(self, client):
         resp = client.post("/analyze")
@@ -139,13 +175,100 @@ class TestAnalyze:
         body = resp.json()
         for key in ("filename", "file_type", "window_size_seconds", "num_windows",
                     "context_len", "timeline", "forecast", "flagged_flows",
-                    "explanation", "warnings"):
+                    "explanation", "momentum", "containment", "multiple_futures",
+                    "attack_fingerprint", "warnings"):
             assert key in body, f"missing key {key}"
         if body["timeline"]:
             entry = body["timeline"][0]
-            assert set(entry) == {"window_id", "window_start", "infiltration_probability", "mitre_stage"}
+            assert set(entry) == {"window_id", "window_start", "infiltration_probability", "mitre_stage", "top_flows"}
         stage = body["forecast"][0]["mitre_stage"]
         assert set(stage) == {"stage", "confidence", "basis", "predicted_attack_type"}
+
+    def test_analyze_timeline_carries_per_window_attention(self, client):
+        # Attack Future Replay: every observed timeline window should carry
+        # its OWN real attention-ranked flows, not just the final window's
+        # (which is what `flagged_flows` at the top level already gives).
+        # The standard sample_csv_bytes fixture spans only ~21 windows,
+        # right at the model's seq_len=20 context boundary -- too few valid
+        # timeline positions to reliably exercise this. Doubling it (a
+        # second copy of the same traffic shifted 30 minutes later) is a
+        # cheap, deterministic way to guarantee enough windows without
+        # depending on real held-out data inside a unit test.
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import pandas as pd
+        from scripts.generate_synthetic_fixture import build_fixture
+        df = build_fixture(n_benign=300)
+        shifted = df.copy()
+        shifted["Timestamp"] = pd.to_datetime(shifted["Timestamp"]) + pd.Timedelta(minutes=30)
+        big_df = pd.concat([df, shifted], ignore_index=True)
+        big_csv = big_df.to_csv(index=False).encode()
+
+        resp = client.post("/analyze", files={"csv_file": ("sample.csv", big_csv, "text/csv")})
+        body = resp.json()
+        assert len(body["timeline"]) > 1
+        for entry in body["timeline"]:
+            assert isinstance(entry["top_flows"], list)
+            for flow in entry["top_flows"]:
+                assert set(flow) == {
+                    "src_ip", "dst_ip", "attention_weight", "attention_concentration",
+                    "flow_count", "bytes_sum", "dst_port_nunique", "retransmission_sum", "is_attack_edge",
+                }
+        # Different windows should not all carry identical top_flows -- real
+        # per-window attention, not one value copy-pasted across entries.
+        distinct_first_flows = {tuple(sorted(e["top_flows"][0].items())) for e in body["timeline"] if e["top_flows"]}
+        assert len(distinct_first_flows) > 1
+
+    def test_analyze_momentum_shape(self, client, sample_csv_bytes):
+        resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        momentum = resp.json()["momentum"]
+        assert set(momentum) == {"score", "top_driver", "explanation", "attack_path_expansion_available"}
+        assert 0.0 <= momentum["score"] <= 100.0
+        assert momentum["attack_path_expansion_available"] is True  # Multiple Parallel Futures (Phase 10) now feeds this
+
+    def test_analyze_containment_shape(self, client, sample_csv_bytes):
+        resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        containment = resp.json()["containment"]
+        assert set(containment) == {
+            "current_stage", "likely_range_minutes", "full_observed_range_minutes",
+            "n_historical_episodes", "has_sufficient_data", "recommended_action", "rationale",
+        }
+        # Whichever stage this fixture lands on, a range is present exactly
+        # when there's historical data for it -- never a dangling range with
+        # zero backing episodes.
+        if containment["n_historical_episodes"] == 0:
+            assert containment["likely_range_minutes"] is None
+        else:
+            assert containment["likely_range_minutes"] is not None
+            assert len(containment["likely_range_minutes"]) == 2
+
+    def test_analyze_multiple_futures_shape(self, client, sample_csv_bytes):
+        resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        futures = resp.json()["multiple_futures"]
+        assert set(futures) == {"n_samples", "outcomes", "deterministic_stage"}
+        assert futures["n_samples"] > 0
+        assert len(futures["outcomes"]) >= 1
+        probs = [o["probability"] for o in futures["outcomes"]]
+        assert probs == sorted(probs, reverse=True)
+        assert sum(probs) == pytest.approx(1.0, abs=1e-6)
+        for outcome in futures["outcomes"]:
+            assert set(outcome) == {"stage", "probability", "n_samples", "mean_infiltration_probability"}
+            assert 0.0 <= outcome["mean_infiltration_probability"] <= 1.0
+
+    def test_analyze_attack_fingerprint_shape(self, client, sample_csv_bytes):
+        resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        fp = resp.json()["attack_fingerprint"]
+        assert set(fp) == {"current", "predicted", "comparison", "top_stage", "summary"}
+        assert len(fp["current"]) == 6  # all 6 real MITRE stages, always
+        assert len(fp["predicted"]) == 6
+        assert len(fp["comparison"]) == 6
+        for entry in fp["current"]:
+            assert set(entry) == {"stage", "score", "similarity", "driving_attack_type"}
+            assert entry["similarity"] in ("High", "Medium", "Low")
+        exfil = next(e for e in fp["current"] if e["stage"] == "Exfiltration")
+        assert exfil["driving_attack_type"] is None  # no attack type maps to Exfiltration, see module docstring
+        for entry in fp["comparison"]:
+            assert entry["trend"] in ("rising", "falling", "stable")
 
     def test_pcap_too_short_returns_client_error_not_crash(self, client, tmp_path):
         pcap_path = tmp_path / "short.pcap"
@@ -166,3 +289,61 @@ class TestAnalyze:
         )
         assert resp.status_code in (422, 500)
         assert "detail" in resp.json()
+
+
+class TestSimulate:
+    """Phase 9, Feature 3 endpoint wiring. /simulate acts on the context
+    cached from the most recently completed /analyze call in this process,
+    so every test here calls /analyze first."""
+
+    def test_simulate_before_any_analyze_returns_client_error(self, client):
+        # By this point in the module other tests have already populated the
+        # cached context via /analyze (the `client` fixture is module-scoped)
+        # -- can't spin up a second TestClient to get a genuinely fresh
+        # _state, since exiting it would run lifespan shutdown and clear the
+        # SAME global _state dict out from under the still-open module-scoped
+        # client. Instead, directly clear just the cached-context key to
+        # reproduce the "no /analyze yet" state, then restore it afterwards.
+        from api.main import _state
+        saved = _state.pop("last_context", None)
+        try:
+            resp = client.post("/simulate", json={"action": "isolate_host", "host_ip": "172.16.0.99"})
+            assert resp.status_code == 422
+            assert "analyze" in resp.json()["detail"]
+        finally:
+            if saved is not None:
+                _state["last_context"] = saved
+
+    def test_simulate_isolate_host_after_analyze(self, client, sample_csv_bytes):
+        analyze_resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        assert analyze_resp.status_code == 200
+
+        resp = client.post("/simulate", json={"action": "isolate_host", "host_ip": "172.16.0.99", "k": 3})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(body["original_probability"]) == 3
+        assert len(body["modified_probability"]) == 3
+        assert len(body["probability_delta"]) == 3
+        assert body["probability_delta"] == pytest.approx(
+            [m - o for m, o in zip(body["modified_probability"], body["original_probability"])]
+        )
+        assert "172.16.0.99" in body["action_label"]
+        assert isinstance(body["side_effects"], list)
+
+    def test_simulate_block_flow_after_analyze(self, client, sample_csv_bytes):
+        analyze_resp = client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        assert analyze_resp.status_code == 200
+
+        resp = client.post("/simulate", json={"action": "block_flow", "src_ip": "172.16.0.99", "dst_ip": "10.0.0.5"})
+        assert resp.status_code == 200, resp.text
+        assert "10.0.0.5" in resp.json()["action_label"]
+
+    def test_simulate_unknown_action_is_client_error(self, client, sample_csv_bytes):
+        client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        resp = client.post("/simulate", json={"action": "nuke_everything"})
+        assert resp.status_code == 422
+
+    def test_simulate_isolate_host_missing_host_ip_is_client_error(self, client, sample_csv_bytes):
+        client.post("/analyze", files={"csv_file": ("sample.csv", sample_csv_bytes, "text/csv")})
+        resp = client.post("/simulate", json={"action": "isolate_host"})
+        assert resp.status_code == 422

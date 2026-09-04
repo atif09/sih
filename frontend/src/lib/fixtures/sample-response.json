@@ -1,0 +1,1050 @@
+{
+  "filename": "real_sample3.csv",
+  "file_type": "csv",
+  "window_size_seconds": 60.0,
+  "num_windows": 42,
+  "context_len": 20,
+  "timeline": [
+    {
+      "window_id": 20,
+      "window_start": 1499399400.0,
+      "infiltration_probability": 0.4196891486644745,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5803108513355255,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.16",
+          "attention_weight": 0.37495964765548706,
+          "attention_concentration": 25.122296392917633,
+          "flow_count": 1.0,
+          "bytes_sum": 124.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "23.52.155.27",
+          "dst_ip": "192.168.10.15",
+          "attention_weight": 0.0691794902086258,
+          "attention_concentration": 2.2137436866760254,
+          "flow_count": 16.0,
+          "bytes_sum": 192.0,
+          "dst_port_nunique": 16.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "192.168.10.12",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.29963597655296326,
+          "attention_concentration": 2.097451835870743,
+          "flow_count": 4.0,
+          "bytes_sum": 922.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 21,
+      "window_start": 1499399460.0,
+      "infiltration_probability": 0.413147509098053,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.586852490901947,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.15",
+          "attention_weight": 0.5,
+          "attention_concentration": 22.5,
+          "flow_count": 2.0,
+          "bytes_sum": 36.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 3.125,
+          "flow_count": 6607.0,
+          "bytes_sum": 51181345.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "192.168.10.12",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.23743340373039246,
+          "attention_concentration": 1.4246004223823547,
+          "flow_count": 447.0,
+          "bytes_sum": 116284.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 22,
+      "window_start": 1499399520.0,
+      "infiltration_probability": 0.42736589908599854,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5726341009140015,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.5",
+          "attention_weight": 0.4520565867424011,
+          "attention_concentration": 4.06850928068161,
+          "flow_count": 2.0,
+          "bytes_sum": 36.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 3.125,
+          "flow_count": 6533.0,
+          "bytes_sum": 50630941.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "151.101.129.34",
+          "dst_ip": "192.168.10.16",
+          "attention_weight": 0.06586509943008423,
+          "attention_concentration": 2.1076831817626953,
+          "flow_count": 12.0,
+          "bytes_sum": 328.0,
+          "dst_port_nunique": 11.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 23,
+      "window_start": 1499399580.0,
+      "infiltration_probability": 0.415645956993103,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.584354043006897,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.16",
+          "attention_weight": 0.4999869167804718,
+          "attention_concentration": 6.499829918146133,
+          "flow_count": 3.0,
+          "bytes_sum": 0.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 1.875,
+          "flow_count": 6977.0,
+          "bytes_sum": 53040447.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "104.244.46.7",
+          "dst_ip": "192.168.10.19",
+          "attention_weight": 0.48569297790527344,
+          "attention_concentration": 1.4570789337158203,
+          "flow_count": 1.0,
+          "bytes_sum": 37.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 24,
+      "window_start": 1499399640.0,
+      "infiltration_probability": 0.44190478324890137,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5580952167510986,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.8",
+          "attention_weight": 0.5003974437713623,
+          "attention_concentration": 5.504371881484985,
+          "flow_count": 1.0,
+          "bytes_sum": 18.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 1.875,
+          "flow_count": 6889.0,
+          "bytes_sum": 52314055.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.15814122557640076,
+          "attention_concentration": 1.265129804611206,
+          "flow_count": 1.0,
+          "bytes_sum": 8550.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 25,
+      "window_start": 1499399700.0,
+      "infiltration_probability": 0.4273254871368408,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5726745128631592,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.12",
+          "attention_weight": 0.5,
+          "attention_concentration": 12.5,
+          "flow_count": 1.0,
+          "bytes_sum": 124.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.15",
+          "attention_weight": 0.3453393280506134,
+          "attention_concentration": 2.0720359683036804,
+          "flow_count": 3.0,
+          "bytes_sum": 60.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.255",
+          "attention_weight": 0.36404213309288025,
+          "attention_concentration": 1.8202106654644012,
+          "flow_count": 1.0,
+          "bytes_sum": 5863.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 26,
+      "window_start": 1499399760.0,
+      "infiltration_probability": 0.44908788800239563,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5509121119976044,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.15",
+          "attention_weight": 0.4996144473552704,
+          "attention_concentration": 6.994602262973785,
+          "flow_count": 2.0,
+          "bytes_sum": 36.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 3.125,
+          "flow_count": 6364.0,
+          "bytes_sum": 49560991.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "192.168.10.14",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.22160278260707855,
+          "attention_concentration": 1.3296166956424713,
+          "flow_count": 71.0,
+          "bytes_sum": 19318.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 27,
+      "window_start": 1499399820.0,
+      "infiltration_probability": 0.4775860607624054,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5224139392375946,
+        "basis": "benign",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.14",
+          "attention_weight": 0.3600868284702301,
+          "attention_concentration": 4.681128770112991,
+          "flow_count": 2.0,
+          "bytes_sum": 36.0,
+          "dst_port_nunique": 2.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 2.5,
+          "flow_count": 6273.0,
+          "bytes_sum": 48066789.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.11830117553472519,
+          "attention_concentration": 1.183011755347252,
+          "flow_count": 1.0,
+          "bytes_sum": 16600.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 28,
+      "window_start": 1499399880.0,
+      "infiltration_probability": 0.5088608860969543,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": [
+        {
+          "src_ip": "172.16.0.1",
+          "dst_ip": "192.168.10.50",
+          "attention_weight": 0.625,
+          "attention_concentration": 1.875,
+          "flow_count": 5954.0,
+          "bytes_sum": 46179634.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": true
+        },
+        {
+          "src_ip": "192.168.10.50",
+          "dst_ip": "192.168.10.3",
+          "attention_weight": 0.20032885670661926,
+          "attention_concentration": 1.2019731402397156,
+          "flow_count": 1.0,
+          "bytes_sum": 9502.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        },
+        {
+          "src_ip": "192.168.10.14",
+          "dst_ip": "205.174.165.73",
+          "attention_weight": 0.20383302867412567,
+          "attention_concentration": 1.0191651433706284,
+          "flow_count": 1.0,
+          "bytes_sum": 18.0,
+          "dst_port_nunique": 1.0,
+          "retransmission_sum": 0.0,
+          "is_attack_edge": false
+        }
+      ]
+    },
+    {
+      "window_id": 29,
+      "window_start": 1499399940.0,
+      "infiltration_probability": 0.5291537046432495,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 30,
+      "window_start": 1499400000.0,
+      "infiltration_probability": 0.5399130582809448,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 31,
+      "window_start": 1499400060.0,
+      "infiltration_probability": 0.5499796867370605,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 32,
+      "window_start": 1499400120.0,
+      "infiltration_probability": 0.551889181137085,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 33,
+      "window_start": 1499400180.0,
+      "infiltration_probability": 0.555575966835022,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 34,
+      "window_start": 1499400240.0,
+      "infiltration_probability": 0.5531940460205078,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 35,
+      "window_start": 1499400300.0,
+      "infiltration_probability": 0.5558900833129883,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 36,
+      "window_start": 1499400360.0,
+      "infiltration_probability": 0.5554854273796082,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 37,
+      "window_start": 1499400420.0,
+      "infiltration_probability": 0.5581083297729492,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 38,
+      "window_start": 1499400480.0,
+      "infiltration_probability": 0.5579653382301331,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 39,
+      "window_start": 1499400540.0,
+      "infiltration_probability": 0.5549730658531189,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 40,
+      "window_start": 1499400600.0,
+      "infiltration_probability": 0.558391273021698,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    },
+    {
+      "window_id": 41,
+      "window_start": 1499400660.0,
+      "infiltration_probability": 0.5581855177879333,
+      "mitre_stage": {
+        "stage": "Reconnaissance",
+        "confidence": 0.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      },
+      "top_flows": []
+    }
+  ],
+  "forecast": [
+    {
+      "step": 1,
+      "infiltration_probability": 0.5571982264518738,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 2,
+      "infiltration_probability": 0.5279757976531982,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 3,
+      "infiltration_probability": 0.5180795788764954,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 4,
+      "infiltration_probability": 0.5111725330352783,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 5,
+      "infiltration_probability": 0.5055148005485535,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 6,
+      "infiltration_probability": 0.5006051659584045,
+      "mitre_stage": {
+        "stage": "Exfiltration",
+        "confidence": 1.0,
+        "basis": "heuristic_fallback",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 7,
+      "infiltration_probability": 0.49631524085998535,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5036847591400146,
+        "basis": "benign",
+        "predicted_attack_type": null
+      }
+    },
+    {
+      "step": 8,
+      "infiltration_probability": 0.4926583468914032,
+      "mitre_stage": {
+        "stage": "Benign / No Stage",
+        "confidence": 0.5073416531085968,
+        "basis": "benign",
+        "predicted_attack_type": null
+      }
+    }
+  ],
+  "flagged_flows": [
+    {
+      "src_ip": "14.0.67.51",
+      "dst_ip": "192.168.10.12",
+      "attention_weight": 0.5009557008743286,
+      "attention_concentration": 1.0019114017486572,
+      "flow_count": 1.0,
+      "bytes_sum": 0.0,
+      "dst_port_nunique": 1.0,
+      "retransmission_sum": 0.0,
+      "is_attack_edge": false
+    },
+    {
+      "src_ip": "104.196.63.196",
+      "dst_ip": "192.168.10.15",
+      "attention_weight": 0.2504565715789795,
+      "attention_concentration": 1.001826286315918,
+      "flow_count": 3.0,
+      "bytes_sum": 36.0,
+      "dst_port_nunique": 3.0,
+      "retransmission_sum": 0.0,
+      "is_attack_edge": false
+    },
+    {
+      "src_ip": "157.240.2.25",
+      "dst_ip": "192.168.10.9",
+      "attention_weight": 0.3338053226470947,
+      "attention_concentration": 1.0014159679412842,
+      "flow_count": 1.0,
+      "bytes_sum": 83.0,
+      "dst_port_nunique": 1.0,
+      "retransmission_sum": 0.0,
+      "is_attack_edge": false
+    },
+    {
+      "src_ip": "130.211.28.230",
+      "dst_ip": "192.168.10.14",
+      "attention_weight": 0.5,
+      "attention_concentration": 1.0,
+      "flow_count": 1.0,
+      "bytes_sum": 12.0,
+      "dst_port_nunique": 1.0,
+      "retransmission_sum": 0.0,
+      "is_attack_edge": false
+    },
+    {
+      "src_ip": "172.16.0.1",
+      "dst_ip": "192.168.10.50",
+      "attention_weight": 1.0,
+      "attention_concentration": 1.0,
+      "flow_count": 1578.0,
+      "bytes_sum": 5375361.0,
+      "dst_port_nunique": 1.0,
+      "retransmission_sum": 0.0,
+      "is_attack_edge": true
+    }
+  ],
+  "explanation": {
+    "summary": "Predicted 56% infiltration probability for the window after upload #41, mapped to MITRE stage 'Exfiltration' (basis: heuristic_fallback). Most-attended flow: 14.0.67.51 -> 192.168.10.12 (attention=0.50, 1 flows, 0 bytes, 1 distinct dst ports). Top contributing host-level features: out_ack_cnt_sum, in_ack_cnt_sum, out_flow_count. Top contributing flow-level features: ack_cnt_sum, flow_count, flag_bitmask_or.",
+    "top_edges_by_attention": [
+      {
+        "src_ip": "14.0.67.51",
+        "dst_ip": "192.168.10.12",
+        "attention_weight": 0.5009557008743286,
+        "attention_concentration": 1.0019114017486572,
+        "flow_count": 1.0,
+        "bytes_sum": 0.0,
+        "dst_port_nunique": 1.0,
+        "retransmission_sum": 0.0,
+        "is_attack_edge": false
+      },
+      {
+        "src_ip": "104.196.63.196",
+        "dst_ip": "192.168.10.15",
+        "attention_weight": 0.2504565715789795,
+        "attention_concentration": 1.001826286315918,
+        "flow_count": 3.0,
+        "bytes_sum": 36.0,
+        "dst_port_nunique": 3.0,
+        "retransmission_sum": 0.0,
+        "is_attack_edge": false
+      },
+      {
+        "src_ip": "157.240.2.25",
+        "dst_ip": "192.168.10.9",
+        "attention_weight": 0.3338053226470947,
+        "attention_concentration": 1.0014159679412842,
+        "flow_count": 1.0,
+        "bytes_sum": 83.0,
+        "dst_port_nunique": 1.0,
+        "retransmission_sum": 0.0,
+        "is_attack_edge": false
+      },
+      {
+        "src_ip": "130.211.28.230",
+        "dst_ip": "192.168.10.14",
+        "attention_weight": 0.5,
+        "attention_concentration": 1.0,
+        "flow_count": 1.0,
+        "bytes_sum": 12.0,
+        "dst_port_nunique": 1.0,
+        "retransmission_sum": 0.0,
+        "is_attack_edge": false
+      },
+      {
+        "src_ip": "172.16.0.1",
+        "dst_ip": "192.168.10.50",
+        "attention_weight": 1.0,
+        "attention_concentration": 1.0,
+        "flow_count": 1578.0,
+        "bytes_sum": 5375361.0,
+        "dst_port_nunique": 1.0,
+        "retransmission_sum": 0.0,
+        "is_attack_edge": true
+      }
+    ],
+    "top_node_features": [
+      {
+        "feature_name": "out_ack_cnt_sum",
+        "score": 0.017185386270284653
+      },
+      {
+        "feature_name": "in_ack_cnt_sum",
+        "score": 0.0040324656292796135
+      },
+      {
+        "feature_name": "out_flow_count",
+        "score": 0.0012064443435519934
+      },
+      {
+        "feature_name": "in_flow_count",
+        "score": 0.0010896429885178804
+      },
+      {
+        "feature_name": "out_iat_mean_mean",
+        "score": 0.0006681344821117818
+      },
+      {
+        "feature_name": "out_psh_cnt_sum",
+        "score": 0.00039871325134299695
+      },
+      {
+        "feature_name": "out_duration_mean",
+        "score": 0.00037034068373031914
+      },
+      {
+        "feature_name": "out_pkts_sum",
+        "score": 0.00022149393043946475
+      },
+      {
+        "feature_name": "in_duration_mean",
+        "score": 0.00020585322636179626
+      },
+      {
+        "feature_name": "out_bytes_sum",
+        "score": 0.00010071533324662596
+      }
+    ],
+    "top_edge_features": [
+      {
+        "feature_name": "ack_cnt_sum",
+        "score": 0.012807585299015045
+      },
+      {
+        "feature_name": "flow_count",
+        "score": 0.0016811640234664083
+      },
+      {
+        "feature_name": "flag_bitmask_or",
+        "score": 0.0002283612557221204
+      },
+      {
+        "feature_name": "psh_cnt_sum",
+        "score": 0.000219778623431921
+      },
+      {
+        "feature_name": "pkts_sum",
+        "score": 0.00019583437824621797
+      },
+      {
+        "feature_name": "syn_cnt_sum",
+        "score": 0.00015685759717598557
+      },
+      {
+        "feature_name": "iat_mean_mean",
+        "score": 0.00011144482414238155
+      },
+      {
+        "feature_name": "down_up_ratio_mean",
+        "score": 9.820198465604335e-05
+      },
+      {
+        "feature_name": "urg_cnt_sum",
+        "score": 6.30459253443405e-05
+      },
+      {
+        "feature_name": "bytes_sum",
+        "score": 5.7252964325016364e-05
+      }
+    ],
+    "per_window_saliency": [
+      4.217690548102837e-05,
+      0.00017348198889521882,
+      0.00013546870104619302,
+      0.00039575595292262733,
+      0.00032425786776002496,
+      0.0006163770885905251,
+      0.0007282970327651128,
+      0.0011322367936372757,
+      0.0013142955431248993,
+      0.0018586739315651357,
+      0.002382567909080535,
+      0.0032602721475996077,
+      0.004788027610629797,
+      0.006298596039414406,
+      0.009029003093019128,
+      0.012029583565890789,
+      0.019695333670824766,
+      0.03292704839259386,
+      0.052686430513858795,
+      0.04171153903007507
+    ]
+  },
+  "warnings": [
+    "No PCAP provided -- packet-level features (TTL, retransmissions, port-scan signature) are zero-filled."
+  ],
+  "momentum": {
+    "score": 8.8,
+    "top_driver": "newly_affected_host_ratio",
+    "explanation": "Momentum driven primarily by newly active hosts (32% of active hosts are new) [note: path-expansion signal not yet available -- Multiple Parallel Futures not built]",
+    "attack_path_expansion_available": false
+  },
+  "containment": {
+    "current_stage": "Reconnaissance",
+    "likely_range_minutes": [
+      2.0,
+      6.0
+    ],
+    "full_observed_range_minutes": [
+      1.0,
+      6.0
+    ],
+    "n_historical_episodes": 9,
+    "has_sufficient_data": true,
+    "recommended_action": "Rate-limit or block the scanning source; increase monitoring on the scanned hosts. (driven by a SYN-heavy flag pattern)",
+    "rationale": "Based on 9 historical 'Reconnaissance' episode(s): typical duration 2.0-6.0 min (observed range 1.0-6.0 min)."
+  },
+  "multiple_futures": {
+    "n_samples": 40,
+    "outcomes": [
+      {
+        "stage": "Benign / No Stage",
+        "probability": 1.0,
+        "n_samples": 40,
+        "mean_infiltration_probability": 0.4867788851261139
+      }
+    ],
+    "deterministic_stage": "Benign / No Stage"
+  },
+  "attack_fingerprint": {
+    "current": [
+      {
+        "stage": "Initial Access",
+        "score": 0.052141230553388596,
+        "similarity": "Low",
+        "driving_attack_type": "FTP - Patator"
+      },
+      {
+        "stage": "Command and Control",
+        "score": 0.03304274380207062,
+        "similarity": "Low",
+        "driving_attack_type": "Bot"
+      },
+      {
+        "stage": "Denial of Service / Impact",
+        "score": 0.024577923119068146,
+        "similarity": "Low",
+        "driving_attack_type": "DoS Slowhttptest"
+      },
+      {
+        "stage": "Reconnaissance",
+        "score": 0.01962657831609249,
+        "similarity": "Low",
+        "driving_attack_type": "PortScan"
+      },
+      {
+        "stage": "Lateral Movement",
+        "score": 0.006309603340923786,
+        "similarity": "Low",
+        "driving_attack_type": "Infiltration"
+      },
+      {
+        "stage": "Exfiltration",
+        "score": 0.0,
+        "similarity": "Low",
+        "driving_attack_type": null
+      }
+    ],
+    "predicted": [
+      {
+        "stage": "Initial Access",
+        "score": 0.0461032971739769,
+        "similarity": "Low",
+        "driving_attack_type": "FTP - Patator"
+      },
+      {
+        "stage": "Command and Control",
+        "score": 0.029133702628314495,
+        "similarity": "Low",
+        "driving_attack_type": "Bot"
+      },
+      {
+        "stage": "Denial of Service / Impact",
+        "score": 0.02086635734885931,
+        "similarity": "Low",
+        "driving_attack_type": "DoS Slowhttptest"
+      },
+      {
+        "stage": "Reconnaissance",
+        "score": 0.016793403401970865,
+        "similarity": "Low",
+        "driving_attack_type": "PortScan"
+      },
+      {
+        "stage": "Lateral Movement",
+        "score": 0.005097494833171368,
+        "similarity": "Low",
+        "driving_attack_type": "Infiltration"
+      },
+      {
+        "stage": "Exfiltration",
+        "score": 0.0,
+        "similarity": "Low",
+        "driving_attack_type": null
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "Initial Access",
+        "current_score": 0.052141230553388596,
+        "current_similarity": "Low",
+        "predicted_score": 0.0461032971739769,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      },
+      {
+        "stage": "Command and Control",
+        "current_score": 0.03304274380207062,
+        "current_similarity": "Low",
+        "predicted_score": 0.029133702628314495,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      },
+      {
+        "stage": "Denial of Service / Impact",
+        "current_score": 0.024577923119068146,
+        "current_similarity": "Low",
+        "predicted_score": 0.02086635734885931,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      },
+      {
+        "stage": "Reconnaissance",
+        "current_score": 0.01962657831609249,
+        "current_similarity": "Low",
+        "predicted_score": 0.016793403401970865,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      },
+      {
+        "stage": "Lateral Movement",
+        "current_score": 0.006309603340923786,
+        "current_similarity": "Low",
+        "predicted_score": 0.005097494833171368,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      },
+      {
+        "stage": "Exfiltration",
+        "current_score": 0.0,
+        "current_similarity": "Low",
+        "predicted_score": 0.0,
+        "predicted_similarity": "Low",
+        "trend": "stable"
+      }
+    ],
+    "top_stage": "Initial Access",
+    "summary": "Current behavior most resembles 'Initial Access' (low similarity, driven by the model's 'FTP - Patator' signal)."
+  }
+}

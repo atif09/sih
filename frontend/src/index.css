@@ -1,0 +1,205 @@
+@import "tailwindcss";
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
+@import "@fontsource/geist-sans/600.css";
+@import "@fontsource/geist-sans/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+/*
+  Design tokens, originally derived from the Stitch-generated mockup's
+  `tailwind.config` (a Material 3 -style semantic color-role system: every
+  name below is a ROLE -- background/surface/primary/error/outline -- not a
+  raw color choice, so a component always says what a color MEANS, not just
+  what it looks like). Ported here as Tailwind v4 @theme tokens so the same
+  utility class names the mockup used (bg-surface-container-low,
+  text-on-surface-variant, border-outline-variant, ...) work unchanged.
+
+  Re-themed to a light palette matching the real, screenshotted colors of
+  https://drug-prix-psi.vercel.app/analyzer (sampled pixel values:
+  background/sidebar rgb(255,255,255), subtle hover band rgb(249,250,251),
+  border rgb(196,201,209), active tab/button pure black rgb(0,0,0), muted
+  text rgb(120,127,141)) -- mostly white with black as the one accent, per
+  that reference. ONLY the structural/neutral roles and the primary
+  (accent) role changed here -- secondary/tertiary/error/warning (the real
+  green/red/amber severity signals used throughout the console) are
+  untouched, exactly as before.
+*/
+@theme {
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-dim: #fafafa;
+  --color-surface-bright: #ffffff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #fafafa;
+  --color-surface-container: #f4f4f5;
+  --color-surface-container-high: #e4e4e7;
+  --color-surface-container-highest: #d4d4d8;
+  --color-surface-variant: #e4e4e7;
+  --color-inverse-surface: #18181b;
+  --color-inverse-on-surface: #fafafa;
+
+  --color-on-surface: #09090b;
+  --color-on-surface-variant: #71717a;
+  --color-outline: #a1a1aa;
+  --color-outline-variant: #d4d4d8;
+
+  --color-primary: #09090b;
+  --color-primary-fixed: #09090b;
+  --color-primary-fixed-dim: #27272a;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #09090b;
+  --color-on-primary-container: #ffffff;
+  --color-inverse-primary: #ffffff;
+  --color-surface-tint: #09090b;
+
+  --color-secondary: #4edea3;
+  --color-secondary-fixed: #6ffbbe;
+  --color-secondary-fixed-dim: #4edea3;
+  --color-on-secondary: #003824;
+  --color-secondary-container: #00a572;
+  --color-on-secondary-container: #00311f;
+
+  --color-tertiary: #fff3f2;
+  --color-tertiary-fixed: #ffdad7;
+  --color-tertiary-fixed-dim: #ffb3ad;
+  --color-on-tertiary: #68000a;
+  --color-tertiary-container: #ffceca;
+  --color-on-tertiary-container: #ba1b24;
+
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+  --color-on-error-container: #ffdad6;
+
+  /* Not part of the generated M3 role set, but a real functional need this
+     app has that the role system alone doesn't cover: a three-tier
+     info/warning/critical severity scale. The Stitch mockup itself reached
+     for this exact amber outside its own token set for the momentum gauge's
+     "escalating" band -- kept here as one disclosed, named exception rather
+     than a second one-off hex scattered through components. */
+  --color-warning: #f59e0b;
+
+  /* Two typefaces, not three: Geist Sans carries UI chrome (headers, nav,
+     labels, prose) and JetBrains Mono carries every technical/data value
+     (IPs, timestamps, probabilities, feature scores) -- the same
+     display/utility split as the rest of this project, just a different
+     pair of faces to match the Stitch mockup's own choice. Dropped the
+     mockup's second monospace (Geist Mono) as redundant with JetBrains Mono
+     rather than ship three type families for two jobs. */
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/*
+  Home page -- and ONLY the home page -- re-themed to match the real,
+  screenshotted colors of https://drug-prix-psi.vercel.app (sampled pixel
+  values: background rgb(19,19,21), secondary surface band rgb(24,24,26),
+  hairline rgb(51,51,53), CTA buttons pure white). That site runs a neutral
+  zinc/black/white palette with NO blue hue anywhere -- the console's own
+  cyan-accented theme above is untouched; these custom properties are
+  re-declared only inside `.home-page`, so CSS variable scoping (nearest
+  ancestor wins, independent of selector specificity) overrides them for
+  the home page's subtree alone. Functional severity colors (secondary/
+  tertiary/error/warning -- the green/amber/red badges) are deliberately
+  NOT re-declared here and keep their original values on the home page too.
+*/
+.home-page {
+  --color-background: #0b0b0d;
+  --color-surface: #0b0b0d;
+  --color-surface-dim: #0b0b0d;
+  --color-surface-bright: #2a2a2e;
+  --color-surface-container-lowest: #0b0b0d;
+  --color-surface-container-low: #141416;
+  --color-surface-container: #18181b;
+  --color-surface-container-high: #1f1f23;
+  --color-surface-container-highest: #27272a;
+  --color-surface-variant: #27272a;
+  --color-inverse-surface: #f4f4f5;
+  --color-inverse-on-surface: #1f1f23;
+
+  --color-on-surface: #f4f4f5;
+  --color-on-surface-variant: #a1a1aa;
+  --color-outline: #71717a;
+  --color-outline-variant: #2e2e33;
+
+  --color-primary: #ffffff;
+  --color-primary-fixed: #ffffff;
+  --color-primary-fixed-dim: #e4e4e7;
+  --color-on-primary: #0b0b0d;
+  --color-primary-container: #ffffff;
+  --color-on-primary-container: #0b0b0d;
+  --color-inverse-primary: #0b0b0d;
+  --color-surface-tint: #ffffff;
+}
+
+html {
+  color-scheme: light;
+}
+/* The home page keeps its own dark theme (see `.home-page` above) --
+   native form-control rendering (scrollbars etc.) needs to follow suit. */
+.home-page {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface-container-lowest);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface-container-lowest);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+}
+
+@keyframes tactical-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pulse-danger {
+  animation: tactical-pulse 1.4s infinite ease-in-out;
+}
+
+/* Home page's ambient hero decoration -- floating packet telemetry
+   (IPs/hex/binary/ports) standing in for the reference design's hovering
+   molecule shapes. Each item drifts along a small loose loop (not a
+   straight up/down bob) and cycles through the app's own accent palette
+   as it moves, never a fixed loop length shared across items (each
+   instance gets its own duration/delay inline) so the field doesn't read
+   as one synchronized sprite sheet. */
+@keyframes drift {
+  0% { transform: translate(0, 0); color: var(--color-secondary-fixed-dim); opacity: var(--drift-opacity, 0.5); }
+  20% { transform: translate(16px, -10px); color: var(--color-primary-container); }
+  40% { transform: translate(-6px, -24px); color: var(--color-warning); opacity: calc(var(--drift-opacity, 0.5) * 0.7); }
+  60% { transform: translate(-20px, -2px); color: var(--color-error); }
+  80% { transform: translate(8px, 14px); color: var(--color-primary-container); opacity: calc(var(--drift-opacity, 0.5) * 0.8); }
+  100% { transform: translate(0, 0); color: var(--color-secondary-fixed-dim); opacity: var(--drift-opacity, 0.5); }
+}
+.animate-drift {
+  animation: drift var(--drift-duration, 8s) ease-in-out infinite;
+  animation-delay: var(--drift-delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

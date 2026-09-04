@@ -27,14 +27,21 @@ from pathlib import Path
 import torch
 import yaml
 
+from containment.estimator import StageDurationStats, build_stage_duration_stats, estimate_containment_window
+from counterfactual.simulator import InterventionAction, simulate_intervention
+from explain.attention import compute_edge_attention, top_edges_overall
 from explain.explainer import explain_prediction
 from features.flow_features import extract_flow_features, load_cicflowmeter_csv
 from features.packet_features import detect_port_scan_signatures, extract_packet_features
 from features.pcap_to_flows import extract_flow_features_from_pcap
 from features.windowing import merge_flow_and_packet_features
-from graph.snapshot import EDGE_FEATURE_NAMES, NODE_FEATURE_NAMES, build_snapshots_for_day
+from fingerprint.attack_fingerprint import compute_attack_fingerprint
+from futures.parallel_futures import sample_parallel_futures
+from graph.snapshot import EDGE_FEATURE_NAMES, GraphSnapshot, NODE_FEATURE_NAMES, build_snapshots_for_day
+from models.dataset import load_all_days
 from models.normalization import FeatureNormalizer
 from models.world_model import WorldModel, WorldModelConfig
+from momentum.score import compute_momentum
 from rollout.engine import run_rollout
 
 
@@ -53,6 +60,7 @@ class ModelBundle:
     window_size_seconds: float
     seq_len: int
     default_k: int
+    stage_duration_stats: dict[str, StageDurationStats]
 
     @classmethod
     def load(cls, checkpoint_dir: str | Path, pipeline_config_path: str | Path, device: torch.device) -> "ModelBundle":
@@ -79,11 +87,26 @@ class ModelBundle:
 
         normalizer = FeatureNormalizer.load(checkpoint_dir / "normalizer.pkl")
 
+        # Containment Window Estimator (Phase 9, Feature 2) statistics, built
+        # ONCE at startup like the model itself -- these are ground-truth
+        # episode-duration statistics pooled from every cached training day,
+        # not something recomputed per request. Deliberately uses ALL 8 days
+        # here (including the day held out from model *training*): this is
+        # the production bundle, not a validation run -- the held-out split
+        # only matters for measuring the world model's own generalization
+        # (see scripts/validate_containment.py for that controlled
+        # leave-one-out/held-out comparison); the containment estimator's
+        # statistics benefit from every real episode available.
+        day_snapshots = load_all_days(run_config["data"]["processed_dir"])
+        window_size_seconds = pipeline_config["feature_extraction"]["window_size_seconds"]
+        stage_duration_stats = build_stage_duration_stats(day_snapshots, window_size_seconds)
+
         return cls(
             model=model, normalizer=normalizer, device=device,
-            window_size_seconds=pipeline_config["feature_extraction"]["window_size_seconds"],
+            window_size_seconds=window_size_seconds,
             seq_len=run_config["data"]["seq_len"],
             default_k=10,
+            stage_duration_stats=stage_duration_stats,
         )
 
 
@@ -111,7 +134,12 @@ def run_pipeline(
     csv_path: Path | None,
     pcap_path: Path | None,
     k: int | None = None,
-) -> dict:
+) -> tuple[dict, list[GraphSnapshot]]:
+    """Returns (response_dict, final_context) -- final_context is the exact
+    context window used for the forecast/explanation above, returned
+    alongside the response so the caller (api/main.py) can cache it for a
+    later /simulate call (Phase 9, Feature 3) without re-running the whole
+    feature-extraction pipeline. Not part of AnalyzeResponse itself."""
     flow_feats, file_type, warnings = _load_flow_features(csv_path, pcap_path)
 
     packet_df = port_scan_df = None
@@ -157,20 +185,26 @@ def run_pipeline(
         }
 
     # Walk-forward timeline: for every valid end position, predict the window
-    # right after it using exactly context_len windows of history (no
-    # explanation computed per-step -- that's attached once, below, to the
-    # single most decision-relevant prediction, both for response size and
-    # because computing a fresh gradient/attention pass per window doesn't
-    # scale to long captures).
+    # right after it using exactly context_len windows of history. The full
+    # Phase 5 explanation (gradient saliency, which needs a backward pass
+    # over the whole context) stays attached to the single final prediction
+    # only -- that doesn't scale to every window. But attention is cheap:
+    # compute_edge_attention is a single forward pass over ONE snapshot (no
+    # backward, no temporal rollout), so computing it per window is
+    # affordable and gives Attack Future Replay (the doc's #1 priority
+    # differentiator) a REAL per-window graph view for every observed
+    # window, not just the last one.
     timeline = []
     for i in range(context_len - 1, len(snapshots) - 1):
         context = snapshots[i - context_len + 1: i + 1]
         result = run_rollout(bundle.model, context, bundle.normalizer, k=1, device=bundle.device, compute_explanations=False)
+        window_edges = compute_edge_attention(bundle.model, snapshots[i], bundle.normalizer, bundle.device)
         timeline.append({
             "window_id": snapshots[i + 1].window_id,
             "window_start": snapshots[i + 1].window_start,
             "infiltration_probability": result.infiltration_probability[0],
             "mitre_stage": _stage_to_dict(result.stage_predictions[0]),
+            "top_flows": top_edges_overall(window_edges, top_k=3),
         })
 
     # Final K-step forecast + full explanation, from the very end of the
@@ -187,7 +221,45 @@ def run_pipeline(
         )
     ]
 
-    return {
+    current_stage = forecast_result.stage_predictions[0].stage
+
+    # Multiple Parallel Futures (Phase 10): MC-Dropout resampling of the
+    # SAME final context -- reuses forecast_result's own k, no separate
+    # rollout config. Computed before Momentum below so its real
+    # path_expansion signal can feed in (see momentum/score.py).
+    futures_result = sample_parallel_futures(bundle.model, final_context, bundle.normalizer, k=k, device=bundle.device)
+
+    # Momentum Score (Phase 9, Feature 1): the "current" moment is defined as
+    # the freshest available prediction -- the walk-forward timeline PLUS the
+    # forecast's own first step (one window more current than the timeline's
+    # last entry, which stops one window short of the upload's true end).
+    # compute_momentum() internally trims to its own lookback windows, so the
+    # full timeline/snapshots lists can be passed as-is.
+    momentum_result = compute_momentum(
+        recent_probabilities=[t["infiltration_probability"] for t in timeline] + [forecast_result.infiltration_probability[0]],
+        recent_stages=[t["mitre_stage"]["stage"] for t in timeline] + [current_stage],
+        recent_snapshots=snapshots,
+        rollout_result=forecast_result,
+        futures_result=futures_result,
+    )
+
+    # Containment Window Estimator (Phase 9, Feature 2): keyed on that same
+    # current stage, using explainability's own top feature names (already
+    # computed above) for the recommended-action qualifier -- no separate
+    # model, no separate explanation pass.
+    top_feature_names = [n for n, _ in explanation.top_node_features] + [n for n, _ in explanation.top_edge_features]
+    containment_estimate = estimate_containment_window(current_stage, bundle.stage_duration_stats, top_feature_names=top_feature_names)
+
+    # Explainable Attack Fingerprint (Phase 10): "current" = the forecast's
+    # own first-step attack_type_probs (same freshest-prediction convention
+    # momentum/containment already use); "predicted" = mean across the
+    # whole forecast horizon (computed inside compute_attack_fingerprint).
+    fingerprint_result = compute_attack_fingerprint(
+        current_attack_type_probs=forecast_result.attack_type_probs[0] if forecast_result.attack_type_probs else {},
+        forecast_attack_type_probs=forecast_result.attack_type_probs,
+    )
+
+    result = {
         "file_type": file_type,
         "window_size_seconds": bundle.window_size_seconds,
         "num_windows": len(snapshots),
@@ -202,5 +274,81 @@ def run_pipeline(
             "top_edge_features": [{"feature_name": n, "score": s} for n, s in explanation.top_edge_features],
             "per_window_saliency": explanation.per_window_saliency,
         },
+        "momentum": {
+            "score": momentum_result.score,
+            "top_driver": momentum_result.top_driver,
+            "explanation": momentum_result.explanation,
+            "attack_path_expansion_available": momentum_result.signals.attack_path_expansion_available,
+        },
+        "containment": {
+            "current_stage": containment_estimate.current_stage,
+            "likely_range_minutes": list(containment_estimate.likely_range_minutes) if containment_estimate.likely_range_minutes else None,
+            "full_observed_range_minutes": list(containment_estimate.full_observed_range_minutes) if containment_estimate.full_observed_range_minutes else None,
+            "n_historical_episodes": containment_estimate.n_historical_episodes,
+            "has_sufficient_data": containment_estimate.has_sufficient_data,
+            "recommended_action": containment_estimate.recommended_action,
+            "rationale": containment_estimate.rationale,
+        },
+        "multiple_futures": {
+            "n_samples": futures_result.n_samples,
+            "outcomes": [
+                {
+                    "stage": o.stage, "probability": o.probability,
+                    "n_samples": o.n_samples, "mean_infiltration_probability": o.mean_infiltration_probability,
+                }
+                for o in futures_result.outcomes
+            ],
+            "deterministic_stage": futures_result.deterministic_stage,
+        },
+        "attack_fingerprint": {
+            "current": [
+                {"stage": e.stage, "score": e.score, "similarity": e.similarity, "driving_attack_type": e.driving_attack_type}
+                for e in fingerprint_result.current
+            ],
+            "predicted": [
+                {"stage": e.stage, "score": e.score, "similarity": e.similarity, "driving_attack_type": e.driving_attack_type}
+                for e in fingerprint_result.predicted
+            ],
+            "comparison": [
+                {
+                    "stage": e.stage, "current_score": e.current_score, "current_similarity": e.current_similarity,
+                    "predicted_score": e.predicted_score, "predicted_similarity": e.predicted_similarity, "trend": e.trend,
+                }
+                for e in fingerprint_result.comparison
+            ],
+            "top_stage": fingerprint_result.top_stage,
+            "summary": fingerprint_result.summary,
+        },
         "warnings": warnings,
+    }
+    return result, final_context
+
+
+def run_simulation(
+    bundle: ModelBundle,
+    context: list[GraphSnapshot],
+    action_kind: str,
+    host_ip: str | None,
+    src_ip: str | None,
+    dst_ip: str | None,
+    bidirectional: bool,
+    k: int | None,
+) -> dict:
+    """Phase 9, Feature 3: apply a defender action to `context` (the cached
+    context from the most recent /analyze call) and re-run the rollout on
+    the modified graph. No new model, no re-extraction -- reuses the exact
+    same context snapshots and the same run_rollout entry point as /analyze."""
+    action = InterventionAction(
+        kind=action_kind, host_ip=host_ip, src_ip=src_ip, dst_ip=dst_ip, bidirectional=bidirectional,
+    )
+    k = k if k is not None else bundle.default_k
+    sim = simulate_intervention(bundle.model, context, bundle.normalizer, action, k=k, device=bundle.device)
+    return {
+        "action_label": sim.action.label,
+        "original_probability": sim.original_probability,
+        "modified_probability": sim.modified_probability,
+        "probability_delta": sim.probability_delta,
+        "original_stage": sim.original_stage,
+        "modified_stage": sim.modified_stage,
+        "side_effects": sim.side_effects,
     }
