@@ -1,46 +1,109 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { forceX, forceY } from "d3-force-3d"
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject, type LinkObject } from "react-force-graph-2d"
-import { IconRadar } from "../../lib/icons"
+import { IconAlert, IconRadar, IconSafeAction } from "../../lib/icons"
 import { Panel } from "../primitives/Panel"
 import { DataReadout } from "../primitives/DataReadout"
-import type { FlaggedFlow } from "../../lib/types"
+import { STAGE_BENIGN } from "../../lib/types"
+import type { FlaggedFlow, MitreStage } from "../../lib/types"
 
 interface GraphNode extends NodeObject {
   id: string
-  isEndpointOfAttack: boolean
+  severity: "target" | "suspicious" | "normal"
 }
 interface GraphLink extends LinkObject {
   source: string
   target: string
   weight: number
-  isAttack: boolean
+  isPath: boolean
 }
 
-const COLOR_NODE = "#00f0ff" // restored to the original cyan-accent node color (matches the line charts' own restored "#00f0ff") -- only the dots, canvas/background stays the light theme
-const COLOR_ATTACK = "#ffb4ab" // error -- unchanged
-const COLOR_LINK = "#4edea3" // secondary-fixed-dim -- unchanged
-const COLOR_SELECTED_RING = "#71717a" // on-surface-variant -- a visible gray halo against the white canvas
+// Real design-system tokens (see CLAUDE.md's Frontend Design System) -- the
+// brief for this feature named #f85149/#d29922, colors that don't exist
+// anywhere in this build. Substituted with the real critical/warning
+// tokens (SIGNAL_HEX's own values, re-declared as literals here since
+// canvas can't consume CSS vars, same pattern already used for every
+// other hardcoded chart/canvas color in this file).
+const COLOR_NODE = "#00f0ff" // normal -- unchanged, the restored cyan accent
+const COLOR_SUSPICIOUS = "#f59e0b" // warning token
+const COLOR_TARGET = "#ffb4ab" // critical/error token
+const COLOR_LINK = "#4edea3" // secondary-fixed-dim -- unchanged, normal flow edges
+const COLOR_SELECTED_RING = "#71717a" // on-surface-variant
 
 interface NodeStats {
   ip: string
-  isAttackEndpoint: boolean
+  severity: GraphNode["severity"]
   touchingFlows: number
   totalBytes: number
   totalFlowCount: number
   maxAttentionWeight: number
 }
 
-function computeNodeStats(ip: string, flows: FlaggedFlow[]): NodeStats {
+function computeNodeStats(ip: string, flows: FlaggedFlow[], severity: GraphNode["severity"]): NodeStats {
   const touching = flows.filter((f) => f.src_ip === ip || f.dst_ip === ip)
   return {
     ip,
-    isAttackEndpoint: touching.some((f) => f.is_attack_edge),
+    severity,
     touchingFlows: touching.length,
     totalBytes: touching.reduce((a, f) => a + f.bytes_sum, 0),
     totalFlowCount: touching.reduce((a, f) => a + f.flow_count, 0),
     maxAttentionWeight: touching.reduce((a, f) => Math.max(a, f.attention_weight), 0),
   }
+}
+
+/**
+ * Real GNN attention -- not the `is_attack_edge` ground-truth label
+ * (`FlaggedFlow.is_attack_edge`'s own docstring: "always False for a real
+ * unlabeled upload"). The old version of this component colored nodes red
+ * only via that label, which meant a real analyst upload (the actual
+ * deployment case, not a labeled-dataset replay) never highlighted
+ * anything at all. Severity here comes from the model's own real output:
+ * `attention_concentration`, the same field the ranked flow lists already
+ * sort by everywhere else in this app.
+ *
+ * "Predicted target" = the single highest-attention flow's destination.
+ * "Path" = that flow, extended forward through any other top-ranked flows
+ * that happen to chain from it (this flow's dst is the next one's src) --
+ * real chaining if it exists in the data, never fabricated past what the
+ * ranked list actually contains.
+ */
+function classifySeverity(flows: FlaggedFlow[], isBenign: boolean) {
+  const ranked = [...flows].sort((a, b) => b.attention_concentration - a.attention_concentration)
+  const targetHost: string | null = !isBenign && ranked.length > 0 ? ranked[0].dst_ip : null
+
+  // Greedily chain forward from the top flow through subsequent top-ranked
+  // flows whose source matches the chain's current end -- a real multi-hop
+  // path if the data supports one, a single edge if it doesn't. Capped at
+  // 4 hops so a coincidental long chain in noisy data can't run away.
+  const pathFlows: FlaggedFlow[] = []
+  if (!isBenign && ranked.length > 0) {
+    pathFlows.push(ranked[0])
+    let cursor = ranked[0].dst_ip
+    const used = new Set([ranked[0].src_ip + "->" + ranked[0].dst_ip])
+    for (let hop = 0; hop < 3; hop++) {
+      const next = ranked.find((f) => f.src_ip === cursor && !used.has(f.src_ip + "->" + f.dst_ip))
+      if (!next) break
+      pathFlows.push(next)
+      used.add(next.src_ip + "->" + next.dst_ip)
+      cursor = next.dst_ip
+    }
+  }
+  const pathEdgeKeys = new Set(pathFlows.map((f) => f.src_ip + "->" + f.dst_ip))
+  const pathHosts = new Set(pathFlows.flatMap((f) => [f.src_ip, f.dst_ip]))
+
+  // "Suspicious" = appears among the next-most-attended real flows (rank
+  // 2-6), excluding whatever's already on the path -- a real, if softer,
+  // signal, not every host in the graph. Gated on !isBenign: attention
+  // weights exist for every window regardless of verdict (attention is
+  // "which flows most influenced this prediction," not "which flows are
+  // attack-like"), so showing amber dots under a calm "no active threat"
+  // banner would contradict it -- only color anything when the model
+  // actually predicts an active stage.
+  const suspiciousHosts = isBenign
+    ? new Set<string>()
+    : new Set(ranked.slice(1, 6).flatMap((f) => [f.src_ip, f.dst_ip]).filter((h) => !pathHosts.has(h)))
+
+  return { targetHost, pathEdgeKeys, pathHosts, suspiciousHosts, topFlow: ranked[0] ?? null }
 }
 
 /**
@@ -50,8 +113,12 @@ function computeNodeStats(ip: string, flows: FlaggedFlow[]): NodeStats {
  * inspector HUD (the Stitch mockup's node inspector showed fabricated OS
  * fingerprints and degree stats; this one shows only fields the API
  * actually returns, aggregated across that host's flagged flows).
+ *
+ * `currentStage` drives the plain-language status banner and the
+ * node/edge severity heat-map -- optional so this component still renders
+ * standalone (e.g. from ReplayPanel, which passes its own per-step stage).
  */
-export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
+export function TopologyGraph({ flows, currentStage }: { flows: FlaggedFlow[]; currentStage?: MitreStage }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined)
   const [selected, setSelected] = useState<string | null>(null)
@@ -68,29 +135,38 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
     return () => observer.disconnect()
   }, [])
 
-  const { nodes, links, hasAttackEdge } = useMemo(() => {
+  // Drives the pulse on the predicted-target node/path only -- one
+  // deliberate animated element, not motion scattered across the graph
+  // (see CLAUDE.md's Motion guidance). ~12fps is smooth enough for a pulse
+  // without forcing the canvas to redraw at full frame rate.
+  const [pulseTick, setPulseTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setPulseTick((t) => (t + 1) % 1000), 80)
+    return () => window.clearInterval(id)
+  }, [])
+  const pulse = 0.55 + 0.45 * Math.sin(pulseTick * 0.3) // oscillates ~0.1..1
+
+  const isBenign = !currentStage || currentStage.stage === STAGE_BENIGN
+
+  const { nodes, links, targetHost, suspiciousHosts, topFlow } = useMemo(() => {
+    const { targetHost, pathEdgeKeys, pathHosts, suspiciousHosts, topFlow } = classifySeverity(flows, isBenign)
     const nodeIds = new Set<string>()
-    const attackEndpoints = new Set<string>()
     for (const f of flows) {
       nodeIds.add(f.src_ip)
       nodeIds.add(f.dst_ip)
-      if (f.is_attack_edge) {
-        attackEndpoints.add(f.src_ip)
-        attackEndpoints.add(f.dst_ip)
-      }
     }
     const nodes: GraphNode[] = Array.from(nodeIds).map((id) => ({
       id,
-      isEndpointOfAttack: attackEndpoints.has(id),
+      severity: id === targetHost ? "target" : suspiciousHosts.has(id) || pathHosts.has(id) ? "suspicious" : "normal",
     }))
     const links: GraphLink[] = flows.map((f) => ({
       source: f.src_ip,
       target: f.dst_ip,
       weight: f.attention_weight,
-      isAttack: f.is_attack_edge,
+      isPath: pathEdgeKeys.has(f.src_ip + "->" + f.dst_ip),
     }))
-    return { nodes, links, hasAttackEdge: attackEndpoints.size > 0 }
-  }, [flows])
+    return { nodes, links, targetHost, suspiciousHosts, topFlow }
+  }, [flows, isBenign])
 
   useEffect(() => {
     graphRef.current?.d3Force("x", forceX(0).strength(0.05))
@@ -101,7 +177,9 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
     graphRef.current?.zoomToFit(400, 56)
   }, [])
 
-  const selectedStats = selected ? computeNodeStats(selected, flows) : null
+  const selectedStats = selected
+    ? computeNodeStats(selected, flows, selected === targetHost ? "target" : suspiciousHosts.has(selected) ? "suspicious" : "normal")
+    : null
 
   return (
     <Panel
@@ -110,32 +188,66 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
       aside={
         <div className="flex items-center gap-3 font-mono text-[10px]">
           <span className="flex items-center gap-1.5 text-on-surface-variant">
-            <span className="h-2 w-2 rounded-full bg-error" /> attack vector
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COLOR_TARGET }} /> predicted target
           </span>
           <span className="flex items-center gap-1.5 text-on-surface-variant">
-            {/* Hardcoded to match COLOR_NODE exactly -- bg-primary-container
-                is the shared theme token (black, used app-wide for buttons
-                etc.), but the canvas dots themselves are a one-off restored
-                cyan accent, not that token, so the legend must match the
-                canvas, not the token. */}
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "#00f0ff" }} /> flow
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COLOR_SUSPICIOUS }} /> suspicious
+          </span>
+          <span className="flex items-center gap-1.5 text-on-surface-variant">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COLOR_NODE }} /> normal
           </span>
         </div>
       }
       className="reticle-corner flex flex-1 flex-col overflow-hidden"
-      bodyClassName="relative flex-1"
+      bodyClassName="relative flex flex-1 flex-col overflow-hidden"
     >
+      {/* Plain-language status banner -- modeled on ContainmentBanner's
+          own two-state (active/quiet) treatment for visual consistency,
+          not a new pattern invented for this one panel. */}
+      {isBenign ? (
+        <div className="flex shrink-0 items-center gap-3 border-b border-outline-variant bg-surface-container-low p-3">
+          <IconSafeAction size={18} className="shrink-0 text-secondary-fixed-dim" />
+          <div className="font-mono text-[12px] text-on-surface-variant">
+            <span className="font-semibold text-secondary-fixed-dim">No active threat predicted.</span>{" "}
+            {currentStage ? (
+              <>
+                Current classification: <span className="text-on-surface">{currentStage.stage}</span>.
+              </>
+            ) : (
+              "Traffic classified as benign."
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="shrink-0 border-b-2 border-error bg-error-container/10 p-3">
+          <div className="flex items-start gap-3">
+            <IconAlert size={20} className="mt-0.5 shrink-0 text-error" />
+            <div className="font-mono text-[13px] font-bold leading-snug text-error">
+              Predicted: {currentStage!.stage}
+              {targetHost && (
+                <>
+                  {" "}
+                  targeting <DataReadout className="text-error">{targetHost}</DataReadout>
+                </>
+              )}
+              {" — "}
+              {(currentStage!.confidence * 100).toFixed(0)}% confidence
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         ref={containerRef}
-        className="relative h-full w-full overflow-hidden bg-surface-container-lowest bg-center bg-size-[16px_16px] bg-[radial-gradient(var(--color-outline-variant)_1px,transparent_1px)]"
+        className="relative min-h-0 flex-1 overflow-hidden bg-surface-container-lowest bg-center bg-size-[16px_16px] bg-[radial-gradient(var(--color-outline-variant)_1px,transparent_1px)]"
       >
         <div className="pointer-events-none absolute bottom-2 left-2 z-10 border border-outline-variant bg-surface-container-lowest/80 px-2 py-1 font-mono text-[10px] text-outline">
           [click node to inspect] // {flows.length} flows observed
         </div>
-        {hasAttackEdge && (
+        {!isBenign && topFlow && (
           <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5 font-mono text-[10px] text-error">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-error" />
-            attack edge active
+            attack path active
           </div>
         )}
 
@@ -154,8 +266,16 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
               </div>
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">STATUS:</span>
-                <span className={selectedStats.isAttackEndpoint ? "font-bold text-error" : "text-secondary-fixed-dim"}>
-                  {selectedStats.isAttackEndpoint ? "ATTACK ENDPOINT" : "NO ATTACK FLAG"}
+                <span
+                  className={
+                    selectedStats.severity === "target"
+                      ? "font-bold text-error"
+                      : selectedStats.severity === "suspicious"
+                        ? "font-bold text-warning"
+                        : "text-secondary-fixed-dim"
+                  }
+                >
+                  {selectedStats.severity === "target" ? "PREDICTED TARGET" : selectedStats.severity === "suspicious" ? "SUSPICIOUS" : "NORMAL"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -190,8 +310,8 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
             nodeRelSize={5}
             nodeLabel={(n) => (n as GraphNode).id}
             onNodeClick={(n) => setSelected((n as GraphNode).id)}
-            linkDirectionalParticles={(l) => ((l as GraphLink).isAttack ? 2 : 0)}
-            linkDirectionalParticleColor={() => COLOR_ATTACK}
+            linkDirectionalParticles={(l) => ((l as GraphLink).isPath ? 2 : 0)}
+            linkDirectionalParticleColor={() => COLOR_TARGET}
             linkDirectionalParticleWidth={2}
             linkCanvasObjectMode={() => "replace"}
             linkCanvasObject={(l, ctx) => {
@@ -202,24 +322,50 @@ export function TopologyGraph({ flows }: { flows: FlaggedFlow[] }) {
               ctx.beginPath()
               ctx.moveTo(source.x, source.y!)
               ctx.lineTo(target.x, target.y!)
-              ctx.strokeStyle = link.isAttack ? COLOR_ATTACK : COLOR_LINK
-              ctx.lineWidth = 0.6 + link.weight * 3
-              ctx.stroke()
+              if (link.isPath) {
+                // The predicted attack path -- distinct dashed treatment,
+                // pulsing opacity, separate from ordinary flow edges.
+                ctx.save()
+                ctx.setLineDash([6, 4])
+                ctx.strokeStyle = COLOR_TARGET
+                ctx.globalAlpha = pulse
+                ctx.lineWidth = 1.5 + link.weight * 3
+                ctx.stroke()
+                ctx.restore()
+              } else {
+                ctx.strokeStyle = COLOR_LINK
+                ctx.lineWidth = 0.6 + link.weight * 3
+                ctx.stroke()
+              }
             }}
             nodeCanvasObjectMode={() => "replace"}
             nodeCanvasObject={(n, ctx) => {
               const node = n as GraphNode
               if (node.x === undefined || node.y === undefined) return
               const r = node.id === selected ? 7 : 5
+              const color = node.severity === "target" ? COLOR_TARGET : node.severity === "suspicious" ? COLOR_SUSPICIOUS : COLOR_NODE
+
+              // Pulsing glow halo on the predicted target only -- the one
+              // element that should be impossible to miss even without
+              // reading the banner.
+              if (node.severity === "target") {
+                ctx.beginPath()
+                ctx.arc(node.x, node.y, r + 6 + pulse * 4, 0, 2 * Math.PI)
+                ctx.fillStyle = COLOR_TARGET
+                ctx.globalAlpha = 0.18 * pulse
+                ctx.fill()
+                ctx.globalAlpha = 1
+              }
+
               ctx.beginPath()
               ctx.arc(node.x, node.y, r, 0, 2 * Math.PI)
-              ctx.fillStyle = node.isEndpointOfAttack ? COLOR_ATTACK : COLOR_NODE
+              ctx.fillStyle = color
               ctx.fill()
-              if (node.isEndpointOfAttack || node.id === selected) {
+              if (node.severity !== "normal" || node.id === selected) {
                 ctx.beginPath()
                 ctx.arc(node.x, node.y, r + 3, 0, 2 * Math.PI)
-                ctx.strokeStyle = node.id === selected ? COLOR_SELECTED_RING : COLOR_ATTACK
-                ctx.lineWidth = 1
+                ctx.strokeStyle = node.id === selected ? COLOR_SELECTED_RING : color
+                ctx.lineWidth = node.severity === "target" ? 1.5 : 1
                 ctx.stroke()
               }
             }}

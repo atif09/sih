@@ -6,7 +6,7 @@ import { DataReadout } from "../primitives/DataReadout"
 import { Panel } from "../primitives/Panel"
 import { TopologyGraph } from "./TopologyGraph"
 import { stageSignal } from "../../lib/severity"
-import type { AnalyzeResponse, FlaggedFlow } from "../../lib/types"
+import type { AnalyzeResponse, FlaggedFlow, MitreStage } from "../../lib/types"
 
 interface ReplayStep {
   kind: "observed" | "predicted"
@@ -40,7 +40,17 @@ export function ReplayPanel({ result }: { result: AnalyzeResponse }) {
       basis: t.mitre_stage.basis,
       flows: t.top_flows,
     }))
-    const lastObservedFlows = observed.length ? observed[observed.length - 1].flows : []
+    // Falls back to result.flagged_flows -- the real attention-ranked flows
+    // from the final context window -- when the walk-forward timeline
+    // itself is empty (a real, if unusual, case: whenever num_windows ==
+    // context_len exactly, every window gets consumed as model context
+    // and none are left for `timeline`). Falling back to [] here was a
+    // real bug: it meant every predicted step showed an empty topology
+    // graph for the ENTIRE replay, not just a fabrication risk to avoid --
+    // flagged_flows already IS "the real flows from the most recent
+    // context window," just sourced from a different field that's always
+    // populated whenever real data exists.
+    const lastObservedFlows = observed.length ? observed[observed.length - 1].flows : result.flagged_flows
     const predicted: ReplayStep[] = result.forecast.map((f) => ({
       kind: "predicted",
       label: `+${f.step} step${f.step === 1 ? "" : "s"}`,
@@ -173,7 +183,15 @@ export function ReplayPanel({ result }: { result: AnalyzeResponse }) {
 
       <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <TopologyGraph flows={graphStep.flows} />
+          {/* Stage/confidence come from `current` (updates instantly with
+              the scrubber) even though `flows` stays on the debounced
+              `graphStep` -- text updating a beat ahead of the graph
+              settling is harmless, unlike restarting the force layout on
+              every drag tick (see graphIndex's own debounce above). */}
+          <TopologyGraph
+            flows={graphStep.flows}
+            currentStage={{ stage: current.stage, confidence: current.probability, basis: current.basis as MitreStage["basis"], predicted_attack_type: null }}
+          />
         </div>
         <Panel title="Replay State" className="reticle-corner lg:col-span-4" bodyClassName="flex flex-col gap-3 p-4">
           <div>

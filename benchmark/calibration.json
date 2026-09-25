@@ -1,0 +1,18 @@
+{
+  "held_out_day": "Friday-Afternoon-DDoS",
+  "n_bins": 10,
+  "world_model": {
+    "predicted_confidence": [
+      0.43134997220344196,
+      0.5493482814894782
+    ],
+    "actual_frequency": [
+      0.0319634703196347,
+      0.9506172839506173
+    ],
+    "bin_counts": [
+      219,
+      81
+    ]
+  }
+}

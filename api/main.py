@@ -15,6 +15,7 @@ directly:
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
@@ -27,13 +28,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.pipeline import InsufficientDataError, ModelBundle, run_pipeline, run_simulation
-from api.schemas import AnalyzeResponse, ErrorResponse, SimulateRequest, SimulateResponse
+from api.schemas import AnalyzeResponse, CalibrationResponse, ErrorResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse
 from models.train import resolve_device
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_DIR = "checkpoints/phase3"
 DEFAULT_PIPELINE_CONFIG = "configs/pipeline.yaml"
+ROC_PR_CURVES_PATH = Path("benchmark/roc_pr_curves.json")
+CALIBRATION_PATH = Path("benchmark/calibration.json")
 
 _state: dict = {}
 
@@ -44,6 +47,24 @@ async def lifespan(app: FastAPI):
     logger.info(f"Loading world model from {DEFAULT_CHECKPOINT_DIR} onto {device} ...")
     _state["bundle"] = ModelBundle.load(DEFAULT_CHECKPOINT_DIR, DEFAULT_PIPELINE_CONFIG, device)
     logger.info("Model loaded.")
+
+    # Fixed, precomputed MODEL-level evaluation data (see
+    # benchmark/run_benchmark.py) -- loaded once at startup like the model
+    # itself, never recomputed per request; independent of any /analyze call.
+    if ROC_PR_CURVES_PATH.exists():
+        _state["roc_pr_curves"] = json.loads(ROC_PR_CURVES_PATH.read_text())
+        logger.info(f"Loaded ROC/PR curve data from {ROC_PR_CURVES_PATH}.")
+    else:
+        _state["roc_pr_curves"] = None
+        logger.warning(f"{ROC_PR_CURVES_PATH} not found -- /model-performance/roc-pr will 404 until `python benchmark/run_benchmark.py` is run.")
+
+    if CALIBRATION_PATH.exists():
+        _state["calibration"] = json.loads(CALIBRATION_PATH.read_text())
+        logger.info(f"Loaded calibration data from {CALIBRATION_PATH}.")
+    else:
+        _state["calibration"] = None
+        logger.warning(f"{CALIBRATION_PATH} not found -- /model-performance/calibration will 404 until `python benchmark/run_benchmark.py` is run.")
+
     yield
     _state.clear()
 
@@ -93,6 +114,39 @@ def model_info():
         "default_k": bundle.default_k,
         "n_parameters": sum(p.numel() for p in bundle.model.parameters()),
     }
+
+
+@app.get(
+    "/model-performance/roc-pr",
+    response_model=ROCPRCurvesResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def roc_pr_curves():
+    """Full ROC/PR curve points for the held-out day (unseen attack type) --
+    the real data behind benchmark/report.md's headline roc_auc figure, not
+    a single operating point. Computed once by benchmark/run_benchmark.py,
+    served here unchanged. Independent of any /analyze call: this describes
+    the MODEL's fixed evaluation, not a particular upload."""
+    curves = _state.get("roc_pr_curves")
+    if curves is None:
+        raise HTTPException(status_code=404, detail=f"No ROC/PR curve data found at {ROC_PR_CURVES_PATH} -- run `python benchmark/run_benchmark.py` first.")
+    return ROCPRCurvesResponse(**curves)
+
+
+@app.get(
+    "/model-performance/calibration",
+    response_model=CalibrationResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def calibration():
+    """Reliability diagram: does the model's predicted confidence match its
+    real accuracy (e.g. are '70% confidence' predictions actually right
+    ~70% of the time)? Held-out day, world model only. Computed once by
+    benchmark/run_benchmark.py, served here unchanged."""
+    data = _state.get("calibration")
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"No calibration data found at {CALIBRATION_PATH} -- run `python benchmark/run_benchmark.py` first.")
+    return CalibrationResponse(**data)
 
 
 @app.post(

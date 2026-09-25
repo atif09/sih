@@ -157,6 +157,56 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class ROCCurve(BaseModel):
+    fpr: list[float] = Field(description="False positive rate at each threshold, ascending")
+    tpr: list[float] = Field(description="True positive rate at each threshold, ascending -- same length as fpr")
+    thresholds: list[float]
+
+
+class PRCurve(BaseModel):
+    precision: list[float] = Field(description="One more point than `thresholds` -- sklearn's precision_recall_curve always appends a final (precision=1, recall=0) point with no corresponding threshold")
+    recall: list[float]
+    thresholds: list[float]
+
+
+class ModelCurves(BaseModel):
+    auc: float = Field(description="ROC-AUC -- same number as benchmark/report.md's held-out-day roc_auc row for this model. This is the ROC chart's summary metric; use average_precision for the PR chart, NOT this field -- the two are different metrics and can disagree under class imbalance")
+    average_precision: float = Field(description="Area under the precision-recall curve -- the PR chart's own summary metric, computed separately from roc_auc (not derived from it)")
+    roc: ROCCurve | None = Field(default=None, description="None only if the held-out region had a single class present (would make ROC undefined) -- not expected for the real held-out day, which has both classes")
+    pr: PRCurve | None = None
+
+
+class ROCPRCurvesResponse(BaseModel):
+    """Full ROC/PR curve points for the held-out day (unseen attack type) --
+    generated once by benchmark/run_benchmark.py alongside report.md, not
+    recomputed per request. This is the real data the console's ROC/PR
+    chart panels plot; benchmark/metrics.py's compute_metrics only reports
+    a single threshold=0.5 operating point, which is not enough to draw an
+    honest curve -- see run_benchmark.py's `_curve_data`."""
+
+    held_out_day: str
+    world_model: ModelCurves
+    baseline: ModelCurves
+
+
+class CalibrationCurve(BaseModel):
+    predicted_confidence: list[float] = Field(description="Mean predicted probability within each confidence bin (sklearn calibration_curve's prob_pred) -- the x-axis")
+    actual_frequency: list[float] = Field(description="Real fraction of positives (true attack windows) observed within each bin (prob_true) -- the y-axis. Equal to predicted_confidence at every point only for a perfectly calibrated model")
+    bin_counts: list[int] = Field(description="Sample count backing each point, same order/length as the two arrays above -- a point rendered off very few samples is a real point but a less statistically solid one, disclosed rather than hidden")
+
+
+class CalibrationResponse(BaseModel):
+    """Reliability diagram data (world model only -- see run_benchmark.py's
+    module comment on why the baseline isn't included here), held-out day.
+    Answers: when this model predicts 70% confidence, is it actually right
+    about 70% of the time? Generated once by benchmark/run_benchmark.py,
+    not recomputed per request."""
+
+    held_out_day: str
+    n_bins: int
+    world_model: CalibrationCurve | None = Field(default=None, description="None only if the held-out region had a single class present -- not expected for the real held-out day")
+
+
 class SimulateRequest(BaseModel):
     """Phase 9, Feature 3 -- Counterfactual Intervention Simulator. Acts on
     the context window from the MOST RECENT /analyze call in this server

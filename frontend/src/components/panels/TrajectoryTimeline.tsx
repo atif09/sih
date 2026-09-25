@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -46,6 +47,18 @@ export function TrajectoryTimeline({ timeline, forecast }: { timeline: TimelineP
     return { rows: [...observedRows, ...bridge, ...forecastRows], nowIndex: lastWindow, peak }
   }, [timeline, forecast])
 
+  const minIndex = rows[0]?.index ?? 0
+  const maxIndex = rows[rows.length - 1]?.index ?? 0
+  // nowIndex is the last REAL observed window_id -- 0 when there wasn't
+  // enough capture to build any walk-forward history at all (every window
+  // got consumed as model context instead), which sits *before* minIndex
+  // and would otherwise push the "now" line and the shaded zones off the
+  // left edge of the chart, outside its actual [minIndex, maxIndex] domain.
+  // Clamping means: no observed history -> the OBSERVED zone correctly
+  // collapses to nothing and FORECAST correctly covers the whole chart,
+  // rather than both silently failing to render.
+  const clampedNow = Math.min(Math.max(nowIndex, minIndex), maxIndex)
+
   return (
     <Panel
       title="Attack Probability Trajectory"
@@ -69,6 +82,24 @@ export function TrajectoryTimeline({ timeline, forecast }: { timeline: TimelineP
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#d4d4d8" strokeDasharray="1 6" vertical={false} />
+          {/* Explicit observed/forecast zones -- previously only the
+              solid-vs-dashed line style distinguished them, which assumes
+              the viewer already knows that convention. A shaded background
+              + printed label makes it unmistakable without narration. */}
+          <ReferenceArea
+            x1={minIndex}
+            x2={clampedNow}
+            fill="#00f0ff"
+            fillOpacity={0.035}
+            label={{ value: "OBSERVED", position: "insideTopLeft", fill: "#71717a", fontFamily: "JetBrains Mono", fontSize: 9 }}
+          />
+          <ReferenceArea
+            x1={clampedNow}
+            x2={maxIndex}
+            fill="#ffb4ab"
+            fillOpacity={0.08}
+            label={{ value: "FORECAST", position: "insideBottomRight", fill: "#ffb4ab", fontFamily: "JetBrains Mono", fontSize: 9, fontWeight: 700 }}
+          />
           <XAxis
             dataKey="index"
             type="number"
@@ -97,7 +128,7 @@ export function TrajectoryTimeline({ timeline, forecast }: { timeline: TimelineP
           />
           <ReferenceLine y={0.5} stroke="#d4d4d8" strokeDasharray="2 4" />
           <ReferenceLine
-            x={nowIndex}
+            x={clampedNow}
             stroke="#09090b"
             strokeWidth={1}
             label={{ value: "now", position: "insideTopRight", fill: "#09090b", fontFamily: "JetBrains Mono", fontSize: 10 }}

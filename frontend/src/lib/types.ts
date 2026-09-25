@@ -179,3 +179,45 @@ export const MITRE_SIX_STAGES = [...MITRE_FIVE_STAGES, "Denial of Service / Impa
 export type MitreSixStage = (typeof MITRE_SIX_STAGES)[number]
 
 export const STAGE_BENIGN = "Benign / No Stage"
+
+// Model Performance section (Mode 1's pre-upload state) -- served from
+// /model-performance/roc-pr, generated once by benchmark/run_benchmark.py.
+// Model-level data (fixed at benchmark time), not tied to any upload.
+export interface ROCCurve {
+  fpr: number[]
+  tpr: number[]
+  thresholds: number[]
+}
+
+export interface PRCurve {
+  precision: number[]
+  recall: number[]
+  thresholds: number[]
+}
+
+export interface ModelCurves {
+  auc: number // ROC-AUC -- the ROC chart's summary metric only, NOT the PR chart's (use average_precision there)
+  average_precision: number // PR chart's own summary metric, computed separately from auc
+  roc: ROCCurve | null
+  pr: PRCurve | null
+}
+
+export interface ROCPRCurvesResponse {
+  held_out_day: string
+  world_model: ModelCurves
+  baseline: ModelCurves
+}
+
+// Confidence Calibration panel -- reliability diagram, world model only.
+// Served from /model-performance/calibration.
+export interface CalibrationCurve {
+  predicted_confidence: number[]
+  actual_frequency: number[]
+  bin_counts: number[]
+}
+
+export interface CalibrationResponse {
+  held_out_day: string
+  n_bins: number
+  world_model: CalibrationCurve | null
+}

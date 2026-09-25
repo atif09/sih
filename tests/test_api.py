@@ -82,6 +82,79 @@ class TestHealth:
         assert body["n_parameters"] > 0
 
 
+class TestROCPRCurves:
+    """Console's ROC/PR chart panels -- see benchmark/roc_pr_curves.json,
+    generated once by benchmark/run_benchmark.py, not recomputed per
+    request."""
+
+    def test_curves_served_from_precomputed_data(self, client):
+        resp = client.get("/model-performance/roc-pr")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["held_out_day"]
+        for model_key in ("world_model", "baseline"):
+            assert 0.0 <= body[model_key]["auc"] <= 1.0
+            assert 0.0 <= body[model_key]["average_precision"] <= 1.0
+
+    def test_average_precision_is_a_real_distinct_metric_not_auc_relabeled(self, client):
+        # average_precision must be computed independently (sklearn's
+        # average_precision_score), not copied from roc_auc -- the two
+        # metrics disagree under class imbalance, and this held-out day's
+        # positive rate is well below 50%, so they should NOT be equal here.
+        resp = client.get("/model-performance/roc-pr")
+        body = resp.json()
+        assert body["baseline"]["average_precision"] != body["baseline"]["auc"]
+
+    def test_curves_have_matching_point_counts(self, client):
+        # roc_curve returns one (fpr, tpr) pair per threshold -- the two
+        # arrays must agree in length or the chart would silently misplot.
+        resp = client.get("/model-performance/roc-pr")
+        body = resp.json()
+        wm_roc = body["world_model"]["roc"]
+        assert len(wm_roc["fpr"]) == len(wm_roc["tpr"]) == len(wm_roc["thresholds"])
+        wm_pr = body["world_model"]["pr"]
+        assert len(wm_pr["precision"]) == len(wm_pr["recall"])
+
+    def test_world_model_curve_is_not_degenerate(self, client):
+        # The held-out day has both classes present, so a real ROC curve
+        # should span from (0,0) toward (1,1), not collapse to a single point.
+        resp = client.get("/model-performance/roc-pr")
+        body = resp.json()
+        wm_roc = body["world_model"]["roc"]
+        assert len(wm_roc["fpr"]) > 2
+        assert max(wm_roc["tpr"]) > 0.5
+
+
+class TestCalibration:
+    """Console's Confidence Calibration panel -- see
+    benchmark/calibration.json, generated once by benchmark/run_benchmark.py."""
+
+    def test_calibration_served_from_precomputed_data(self, client):
+        resp = client.get("/model-performance/calibration")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["held_out_day"]
+        wm = body["world_model"]
+        assert wm is not None
+        assert len(wm["predicted_confidence"]) == len(wm["actual_frequency"]) == len(wm["bin_counts"])
+
+    def test_calibration_values_are_valid_probabilities(self, client):
+        resp = client.get("/model-performance/calibration")
+        body = resp.json()
+        wm = body["world_model"]
+        for v in wm["predicted_confidence"] + wm["actual_frequency"]:
+            assert 0.0 <= v <= 1.0
+
+    def test_bin_counts_are_positive_and_sum_to_at_most_the_test_set_size(self, client):
+        # Every plotted point must rest on at least one real example --
+        # sklearn drops empty bins, so every remaining count should be > 0.
+        resp = client.get("/model-performance/calibration")
+        body = resp.json()
+        counts = body["world_model"]["bin_counts"]
+        assert all(c > 0 for c in counts)
+        assert sum(counts) <= 300  # the real held-out day has exactly 300 examples (see benchmark/report.md)
+
+
 class TestAnalyze:
     def test_analyze_requires_at_least_one_file(self, client):
         resp = client.post("/analyze")

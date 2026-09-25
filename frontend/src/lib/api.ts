@@ -1,5 +1,5 @@
 import axios from "axios"
-import type { AnalyzeResponse, SimulateRequest, SimulateResponse } from "./types"
+import type { AnalyzeResponse, CalibrationResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse } from "./types"
 
 // Vite dev server proxies /api -> http://localhost:8000 (see vite.config.ts).
 // No external hosts anywhere -- fully offline against the local backend.
@@ -50,5 +50,18 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function getModelInfo(): Promise<ModelInfoResponse> {
   const res = await client.get<ModelInfoResponse>("/model-info")
+  return res.data
+}
+
+// Fixed model-level ROC/PR curve data (held-out day), independent of any
+// uploaded capture -- see benchmark/run_benchmark.py and ModelPerformance.
+export async function getROCPRCurves(): Promise<ROCPRCurvesResponse> {
+  const res = await client.get<ROCPRCurvesResponse>("/model-performance/roc-pr")
+  return res.data
+}
+
+// Fixed model-level reliability diagram (held-out day, world model only).
+export async function getCalibration(): Promise<CalibrationResponse> {
+  const res = await client.get<CalibrationResponse>("/model-performance/calibration")
   return res.data
 }

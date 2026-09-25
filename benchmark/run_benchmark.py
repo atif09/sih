@@ -41,8 +41,61 @@ from models.dataset import GraphSequenceDataset, build_split, load_all_days, spl
 from models.train import evaluate, resolve_device
 from scripts.run_rollout import load_trained_model
 from torch.utils.data import DataLoader
+from sklearn.calibration import calibration_curve
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_curve
 import pickle
 import argparse
+
+
+def _curve_data(labels: np.ndarray, probs: np.ndarray) -> dict:
+    """Full ROC/PR curves (not just the single threshold=0.5 operating point
+    compute_metrics reports) -- the actual points behind the headline
+    roc_auc figure. Only meaningful when both classes are present.
+
+    Includes average_precision (area under the PR curve) as its own field,
+    separate from roc_auc -- the two are different metrics computed
+    differently (trapezoidal ROC integral vs. a step-weighted precision
+    sum) and can disagree, especially under class imbalance. Reusing
+    roc_auc as if it were "the AUC" for a PR chart would mislabel it."""
+    labels = np.asarray(labels)
+    probs = np.asarray(probs)
+    if len(np.unique(labels)) < 2:
+        return {"roc": None, "pr": None, "average_precision": float("nan")}
+    fpr, tpr, roc_thresholds = roc_curve(labels, probs)
+    precision, recall, pr_thresholds = precision_recall_curve(labels, probs)
+    return {
+        "roc": {"fpr": fpr.tolist(), "tpr": tpr.tolist(), "thresholds": roc_thresholds.tolist()},
+        # precision_recall_curve returns one fewer threshold than precision/recall points
+        # (the last point is always (precision=1, recall=0) with no corresponding threshold)
+        "pr": {"precision": precision.tolist(), "recall": recall.tolist(), "thresholds": pr_thresholds.tolist()},
+        "average_precision": float(average_precision_score(labels, probs)),
+    }
+
+
+def _calibration_data(labels: np.ndarray, probs: np.ndarray, n_bins: int = 10) -> dict | None:
+    """Reliability diagram data: for each of n_bins equal-width confidence
+    bins, the model's mean predicted probability in that bin vs. the real
+    fraction of positives observed in it -- sklearn's own calibration_curve,
+    not a hand-rolled binning (avoids a real off-by-one/edge-bin mistake
+    that's easy to introduce by hand). Empty bins are dropped by sklearn,
+    so bin_counts (computed separately, same bin edges) discloses which
+    remaining points rest on thin sample counts rather than hiding it."""
+    labels = np.asarray(labels)
+    probs = np.asarray(probs)
+    if len(np.unique(labels)) < 2:
+        return None
+    prob_true, prob_pred = calibration_curve(labels, probs, n_bins=n_bins, strategy="uniform")
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_idx = np.clip(np.digitize(probs, bin_edges[1:-1]), 0, n_bins - 1)
+    all_counts = np.bincount(bin_idx, minlength=n_bins)
+    # Only the non-empty bins' counts, in the same order calibration_curve
+    # returned its (now-fewer-than-n_bins) points in.
+    bin_counts = [int(c) for c in all_counts if c > 0]
+    return {
+        "predicted_confidence": prob_pred.tolist(),
+        "actual_frequency": prob_true.tolist(),
+        "bin_counts": bin_counts,
+    }
 
 
 def format_table(rows: list[dict], columns: list[str]) -> str:
@@ -64,6 +117,8 @@ def main() -> None:
     parser.add_argument("--baseline-checkpoint-dir", type=str, default="checkpoints/baseline")
     parser.add_argument("--processed-dir", type=str, default="data/processed/cicids2017")
     parser.add_argument("--report-out", type=str, default="benchmark/report.md")
+    parser.add_argument("--curve-out", type=str, default="benchmark/roc_pr_curves.json", help="Full ROC/PR curve points (held-out day only) for the console's ROC/PR chart panels -- the real data behind the headline roc_auc figure, not a single point.")
+    parser.add_argument("--calibration-out", type=str, default="benchmark/calibration.json", help="Reliability diagram data (held-out day, world model only) for the console's Confidence Calibration panel.")
     parser.add_argument("--device", type=str, default="auto")
     args = parser.parse_args()
 
@@ -177,6 +232,36 @@ Held-out day (unseen attack type): **{held_out_day}**
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report)
     print(f"\nSaved report to {report_path}")
+
+    # Full ROC/PR curves, held-out day only (that's the PS's generalization
+    # claim, and what the console's ROC/PR chart panels visualize) -- the
+    # actual (fpr, tpr) / (precision, recall) points behind test_rows'
+    # single roc_auc number above, not a fabricated curve interpolated from
+    # one point.
+    curve_data = {
+        "held_out_day": held_out_day,
+        "world_model": {"auc": test_rows[0]["roc_auc"], **_curve_data(wm_test_labels, wm_test_probs)},
+        "baseline": {"auc": test_rows[1]["roc_auc"], **_curve_data(y_test, bl_test_probs)},
+    }
+    curve_path = Path(args.curve_out)
+    curve_path.parent.mkdir(parents=True, exist_ok=True)
+    curve_path.write_text(json.dumps(curve_data, indent=2))
+    print(f"Saved ROC/PR curve data to {curve_path}")
+
+    # Confidence calibration (reliability diagram), world model only, held-out
+    # day -- checks whether "70% confidence" predictions are actually right
+    # ~70% of the time. Not meaningful for the baseline here: its held-out
+    # predictions are almost all on one side of 0.5 (see report.md's
+    # precision=0.000 row), leaving too few populated bins to plot honestly.
+    calibration_data = {
+        "held_out_day": held_out_day,
+        "n_bins": 10,
+        "world_model": _calibration_data(wm_test_labels, wm_test_probs, n_bins=10),
+    }
+    calibration_path = Path(args.calibration_out)
+    calibration_path.parent.mkdir(parents=True, exist_ok=True)
+    calibration_path.write_text(json.dumps(calibration_data, indent=2))
+    print(f"Saved calibration data to {calibration_path}")
 
 
 if __name__ == "__main__":
