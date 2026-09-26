@@ -1,3 +1,12 @@
+---
+title: NeuralShield
+emoji: 🛡️
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+---
+
 # SIH26153 — AI-Based Network Attack Forecasting (World Models)
 
 World-model-based system that learns network state transition dynamics to
