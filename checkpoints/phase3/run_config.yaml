@@ -1,0 +1,29 @@
+data:
+  held_out_day: Friday-Afternoon-DDoS
+  processed_dir: data/processed/cicids2017
+  seq_len: 20
+  seq_stride: 5
+  val_fraction: 0.2
+model:
+  dropout: 0.3
+  gnn_heads: 4
+  gnn_hidden_dim: 32
+  gnn_num_layers: 2
+  latent_dim: 64
+  temporal_hidden_dim: 64
+  temporal_num_heads: 4
+  temporal_num_layers: 1
+  temporal_type: lstm
+output:
+  checkpoint_dir: checkpoints/phase3
+seed: 42
+train:
+  attack_loss_weight: 1.0
+  attack_type_loss_weight: 0.5
+  batch_size: 32
+  device: auto
+  dynamics_loss_weight: 1.0
+  early_stopping_patience: 8
+  epochs: 40
+  lr: 0.0005
+  weight_decay: 0.0001

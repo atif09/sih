@@ -1,0 +1,338 @@
+[
+  {
+    "epoch": 1,
+    "train": {
+      "dynamics_loss": 0.9415964159098539,
+      "attack_loss": 1.060736358165741,
+      "attack_type_loss": 0.662409403107383,
+      "total_loss": 2.3335374268618496
+    },
+    "val": {
+      "dynamics_loss": 0.8761633634567261,
+      "attack_loss": 0.8763095736503601,
+      "attack_type_loss": 0.6266135176022848,
+      "total_loss": 2.065779685974121,
+      "accuracy": 0.4036842105263158,
+      "precision": 0.09042076991942703,
+      "recall": 0.463302752293578,
+      "f1": 0.15131086142322098,
+      "roc_auc": 0.45288756286203624,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.20512820512820512
+    },
+    "elapsed_s": 6.2018818855285645
+  },
+  {
+    "epoch": 2,
+    "train": {
+      "dynamics_loss": 0.7765250151807611,
+      "attack_loss": 1.0599108013239773,
+      "attack_type_loss": 0.5797056393189863,
+      "total_loss": 2.126288641582836
+    },
+    "val": {
+      "dynamics_loss": 0.6745299498240153,
+      "attack_loss": 0.8839332858721415,
+      "attack_type_loss": 0.49810020128885907,
+      "total_loss": 1.8075133562088013,
+      "accuracy": 0.22421052631578947,
+      "precision": 0.08520475561426684,
+      "recall": 0.591743119266055,
+      "f1": 0.1489607390300231,
+      "roc_auc": 0.41887933761686064,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.5384615384615384
+    },
+    "elapsed_s": 4.147427082061768
+  },
+  {
+    "epoch": 3,
+    "train": {
+      "dynamics_loss": 0.5493938299742612,
+      "attack_loss": 1.0643667524511164,
+      "attack_type_loss": 0.4169759208505804,
+      "total_loss": 1.822248556397178
+    },
+    "val": {
+      "dynamics_loss": 0.4644567668437958,
+      "attack_loss": 0.8762651880582174,
+      "attack_type_loss": 0.2824949125448863,
+      "total_loss": 1.4819693962732952,
+      "accuracy": 0.5405263157894736,
+      "precision": 0.10494571773220748,
+      "recall": 0.39908256880733944,
+      "f1": 0.166189111747851,
+      "roc_auc": 0.42733639507357996,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.05128205128205128
+    },
+    "elapsed_s": 4.089569807052612
+  },
+  {
+    "epoch": 4,
+    "train": {
+      "dynamics_loss": 0.3674996928735213,
+      "attack_loss": 1.0547169717875393,
+      "attack_type_loss": 0.2314231815663251,
+      "total_loss": 1.5379282452843406
+    },
+    "val": {
+      "dynamics_loss": 0.3094693422317505,
+      "attack_loss": 0.8723604480425516,
+      "attack_type_loss": 0.13008907934029898,
+      "total_loss": 1.2468743721644084,
+      "accuracy": 0.7157894736842105,
+      "precision": 0.16176470588235295,
+      "recall": 0.3532110091743119,
+      "f1": 0.2219020172910663,
+      "roc_auc": 0.44263600562894756,
+      "f1_best_threshold": 0.2219020172910663,
+      "best_threshold": 0.49999999999999994,
+      "benign_to_attack_recall": 0.0
+    },
+    "elapsed_s": 4.020915985107422
+  },
+  {
+    "epoch": 5,
+    "train": {
+      "dynamics_loss": 0.22637867521155963,
+      "attack_loss": 1.055454064499248,
+      "attack_type_loss": 0.13934947550296783,
+      "total_loss": 1.3515074903314763
+    },
+    "val": {
+      "dynamics_loss": 0.19316594302654266,
+      "attack_loss": 0.8705028295516968,
+      "attack_type_loss": 0.07467412824432056,
+      "total_loss": 1.1010058323542278,
+      "accuracy": 0.6952631578947368,
+      "precision": 0.15879017013232513,
+      "recall": 0.3853211009174312,
+      "f1": 0.2248995983935743,
+      "roc_auc": 0.44743451984858573,
+      "f1_best_threshold": 0.2248995983935743,
+      "best_threshold": 0.49999999999999994,
+      "benign_to_attack_recall": 0.02564102564102564
+    },
+    "elapsed_s": 3.86283278465271
+  },
+  {
+    "epoch": 6,
+    "train": {
+      "dynamics_loss": 0.1484419358047572,
+      "attack_loss": 1.0442206805402583,
+      "attack_type_loss": 0.10805014385418459,
+      "total_loss": 1.2466876831921665
+    },
+    "val": {
+      "dynamics_loss": 0.17523996531963348,
+      "attack_loss": 0.8377055724461874,
+      "attack_type_loss": 0.058854215467969574,
+      "total_loss": 1.0423726836840312,
+      "accuracy": 0.8568421052631578,
+      "precision": 0.35,
+      "recall": 0.2889908256880734,
+      "f1": 0.3165829145728643,
+      "roc_auc": 0.4835549640554604,
+      "f1_best_threshold": 0.3165829145728643,
+      "best_threshold": 0.49999999999999994,
+      "benign_to_attack_recall": 0.0
+    },
+    "elapsed_s": 4.3268890380859375
+  },
+  {
+    "epoch": 7,
+    "train": {
+      "dynamics_loss": 0.15186849575151096,
+      "attack_loss": 0.9936788461425088,
+      "attack_type_loss": 0.09919206527146426,
+      "total_loss": 1.1951433636925437
+    },
+    "val": {
+      "dynamics_loss": 0.22593093911806741,
+      "attack_loss": 0.8559876283009847,
+      "attack_type_loss": 0.054245674361785255,
+      "total_loss": 1.1090413729349773,
+      "accuracy": 0.6436842105263157,
+      "precision": 0.13744075829383887,
+      "recall": 0.39908256880733944,
+      "f1": 0.2044653349001175,
+      "roc_auc": 0.4743751977222398,
+      "f1_best_threshold": 0.2350597609561753,
+      "best_threshold": 0.6,
+      "benign_to_attack_recall": 0.05128205128205128
+    },
+    "elapsed_s": 4.000868797302246
+  },
+  {
+    "epoch": 8,
+    "train": {
+      "dynamics_loss": 0.19503685696558518,
+      "attack_loss": 0.897384145043113,
+      "attack_type_loss": 0.09564563225616109,
+      "total_loss": 1.1402438228780574
+    },
+    "val": {
+      "dynamics_loss": 0.2868582208951314,
+      "attack_loss": 0.9558319250742594,
+      "attack_type_loss": 0.05285594364007314,
+      "total_loss": 1.2691181500752766,
+      "accuracy": 0.5752631578947368,
+      "precision": 0.12388250319284802,
+      "recall": 0.44495412844036697,
+      "f1": 0.1938061938061938,
+      "roc_auc": 0.461159170493842,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.23076923076923078
+    },
+    "elapsed_s": 3.913604259490967
+  },
+  {
+    "epoch": 9,
+    "train": {
+      "dynamics_loss": 0.22546758299524133,
+      "attack_loss": 0.835028198632327,
+      "attack_type_loss": 0.09457102688876065,
+      "total_loss": 1.1077812964265996
+    },
+    "val": {
+      "dynamics_loss": 0.2996596395969391,
+      "attack_loss": 0.9681073029836019,
+      "attack_type_loss": 0.052405024568239846,
+      "total_loss": 1.293969452381134,
+      "accuracy": 0.6342105263157894,
+      "precision": 0.14027149321266968,
+      "recall": 0.42660550458715596,
+      "f1": 0.21112372304199772,
+      "roc_auc": 0.4714230001418146,
+      "f1_best_threshold": 0.22550335570469798,
+      "best_threshold": 0.65,
+      "benign_to_attack_recall": 0.15384615384615385
+    },
+    "elapsed_s": 3.9129319190979004
+  },
+  {
+    "epoch": 10,
+    "train": {
+      "dynamics_loss": 0.23134275051680478,
+      "attack_loss": 0.7827539877458052,
+      "attack_type_loss": 0.0901120782575824,
+      "total_loss": 1.0591527765447444
+    },
+    "val": {
+      "dynamics_loss": 0.29441845417022705,
+      "attack_loss": 0.9840106765429179,
+      "attack_type_loss": 0.05337928980588913,
+      "total_loss": 1.3051187594731648,
+      "accuracy": 0.6447368421052632,
+      "precision": 0.1435257410296412,
+      "recall": 0.42201834862385323,
+      "f1": 0.21420256111757857,
+      "roc_auc": 0.48075412625860436,
+      "f1_best_threshold": 0.2570806100217865,
+      "best_threshold": 0.85,
+      "benign_to_attack_recall": 0.10256410256410256
+    },
+    "elapsed_s": 4.016695976257324
+  },
+  {
+    "epoch": 11,
+    "train": {
+      "dynamics_loss": 0.23923531851985239,
+      "attack_loss": 0.7466168078509244,
+      "attack_type_loss": 0.08810474046251991,
+      "total_loss": 1.0299045118418606
+    },
+    "val": {
+      "dynamics_loss": 0.2831808974345525,
+      "attack_loss": 0.9452579816182455,
+      "attack_type_loss": 0.05288820589582125,
+      "total_loss": 1.2548829913139343,
+      "accuracy": 0.716842105263158,
+      "precision": 0.18127490039840638,
+      "recall": 0.41743119266055045,
+      "f1": 0.25277777777777777,
+      "roc_auc": 0.45616020683109887,
+      "f1_best_threshold": 0.27564102564102566,
+      "best_threshold": 0.6,
+      "benign_to_attack_recall": 0.07692307692307693
+    },
+    "elapsed_s": 3.8575050830841064
+  },
+  {
+    "epoch": 12,
+    "train": {
+      "dynamics_loss": 0.2254226885058663,
+      "attack_loss": 0.7305948409167203,
+      "attack_type_loss": 0.08543845604766499,
+      "total_loss": 0.9987367608330466
+    },
+    "val": {
+      "dynamics_loss": 0.267408827940623,
+      "attack_loss": 1.0501887400945027,
+      "attack_type_loss": 0.05326866296430429,
+      "total_loss": 1.3442318439483643,
+      "accuracy": 0.6742105263157895,
+      "precision": 0.06881720430107527,
+      "recall": 0.14678899082568808,
+      "f1": 0.09370424597364568,
+      "roc_auc": 0.3883537509954292,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.05128205128205128
+    },
+    "elapsed_s": 3.961167097091675
+  },
+  {
+    "epoch": 13,
+    "train": {
+      "dynamics_loss": 0.22532197020270608,
+      "attack_loss": 0.6952040628953413,
+      "attack_type_loss": 0.08386180075732144,
+      "total_loss": 0.9624569361860101
+    },
+    "val": {
+      "dynamics_loss": 0.2661750266949336,
+      "attack_loss": 1.207495629787445,
+      "attack_type_loss": 0.05383495303491751,
+      "total_loss": 1.500588099161784,
+      "accuracy": 0.6273684210526316,
+      "precision": 0.05776173285198556,
+      "recall": 0.14678899082568808,
+      "f1": 0.08290155440414508,
+      "roc_auc": 0.3528469275327537,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.07692307692307693
+    },
+    "elapsed_s": 4.354143142700195
+  },
+  {
+    "epoch": 14,
+    "train": {
+      "dynamics_loss": 0.2163431251590902,
+      "attack_loss": 0.692061413418163,
+      "attack_type_loss": 0.08173699338327754,
+      "total_loss": 0.9492730281569741
+    },
+    "val": {
+      "dynamics_loss": 0.25118499994277954,
+      "attack_loss": 0.98103400071462,
+      "attack_type_loss": 0.052492467065652214,
+      "total_loss": 1.2584652105967205,
+      "accuracy": 0.7589473684210526,
+      "precision": 0.08041958041958042,
+      "recall": 0.10550458715596331,
+      "f1": 0.09126984126984126,
+      "roc_auc": 0.3687587952306668,
+      "f1_best_threshold": 0.20585457979225685,
+      "best_threshold": 0.05,
+      "benign_to_attack_recall": 0.05128205128205128
+    },
+    "elapsed_s": 3.902651786804199
+  }
+]

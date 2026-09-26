@@ -854,3 +854,448 @@ curl -X POST http://localhost:8000/analyze \
 curl -X POST http://localhost:8000/analyze \
     -F "pcap_file=@path/to/capture.pcap"
 ```
+
+## Phase 9 — Differentiator Features (backend/ML only — no frontend yet)
+
+Three features built on top of the existing, unmodified Phase 1-8 system:
+Cyber Threat Momentum Score, Containment Window Estimator, and a
+Counterfactual Intervention Simulator. All three are **derived/post-processing
+logic — no new model was trained.** Per CLAUDE.md's Phase 9 scope, no
+frontend UI is built for these yet; `/simulate` is endpoint wiring only.
+
+### Before starting: confirming the baseline's F1=0.000 is real, not a bug
+Before building anything, re-investigated Phase 6's headline number by
+running the world model and baseline on identical `X_test`/`y_test` arrays
+(same 92 examples, same 22.8% attack rate, same `FeatureNormalizer`, same
+`split_day_snapshots` boundary) and inspecting the baseline's raw
+probabilities directly:
+
+- Confusion matrix: `tn=64, fp=7, fn=21, tp=0` — the model's predicted
+  probability for every single true-attack example stayed under 0.5
+  (`mean=0.020, max=0.417`), so TP=0 exactly, not approximately. AUC=0.040
+  (a flipped-label AUC of 0.960 confirms the model's *ranking* is coherent,
+  just inverted relative to this label).
+- No leakage and no split artifact: the normalizer, training data, and test
+  data were all traced back to the same fitted objects Phase 6 used; the
+  DDoS traffic's volumetric features sit at the 96th-99th percentile of the
+  *training* range, i.e. within-distribution, not extrapolation the model
+  never saw the shape of.
+- Root cause, found in the coefficients: the top three by `|coef|` are
+  `node_mean__out_urg_cnt_sum` (+5.4), `edge_mean__ack_cnt_sum` (-4.0),
+  `edge_mean__flag_bitmask_or` (-3.5) — a decision boundary learned from
+  training attacks (brute-force, web attacks, infiltration — all
+  flag-pattern-driven, low-volume) that penalizes exactly the ACK-heavy,
+  flag-uniform traffic signature a volumetric DDoS produces. The linear
+  model isn't uncertain about DDoS traffic — it's confidently, systematically
+  wrong about it, because DDoS's real signature inverts the flag-based
+  correlations it learned from every other attack type.
+
+This is a genuine capability gap (a linear boundary that doesn't transfer
+across attack *shapes*), not a split bug — exactly the generalization gap
+the world model's GNN attention + temporal context is built to close, and
+the number can be trusted as the basis for Phase 9's work.
+
+### Feature 1 — Cyber Threat Momentum Score (`momentum/`)
+A rate-of-escalation metric computed entirely from model-predicted/graph-
+observable signals (never ground truth) — `compute_momentum()` combines four
+weighted signals into a 0-100 score plus a human-readable top-driver
+explanation:
+
+| signal | weight | source |
+|---|---|---|
+| probability slope | 0.40 | recent infiltration-probability trend (`np.polyfit`) |
+| newly affected host ratio | 0.25 | host churn across recent snapshots |
+| stage progression rate | 0.20 | how often the predicted MITRE stage has changed recently |
+| forecast trend | 0.15 | slope of a short forward rollout ("expansion of predicted attack paths") |
+
+Two honest scope notes, disclosed rather than glossed over: "expansion of
+predicted attack paths" falls back to the single top rollout path's trend
+since Multiple Parallel Futures isn't built (`attack_path_expansion_available=False`
+flags this on the result); "privilege level changes" is omitted entirely,
+not faked — NetFlow features carry no authentication data to infer it from.
+When a rollout result isn't available, the other three signals are
+reweighted (not zero-penalized).
+
+**Validated** (`scripts/validate_momentum.py`) by walking forward across the
+entire held-out `Friday-Afternoon-DDoS` day using only predicted signals,
+then comparing against real ground-truth labels for evaluation only: mean
+momentum in the 6 windows before attack onset was **11.5**, rising to
+**25.4** during onset (peaking 30-33 as probability ramps up), then
+correctly settling back to 2-18 once probability plateaus — momentum
+measures rate of escalation, not standing severity, so de-escalating during
+a sustained, already-detected attack is correct behavior, not a miss.
+Caveat found during validation: `newly_affected_host_ratio` dominates as the
+reported top driver even on many benign windows, noisier than expected due
+to natural host churn in this dataset — worth revisiting if this ships
+further.
+
+### Feature 2 — Containment Window Estimator (`containment/`)
+Uses the existing trained world model + rollout engine only — no separate
+model. A real, disclosed reframing was needed before building this: the
+brief asks for stage-to-stage transition times (e.g. Reconnaissance →
+Lateral Movement), but checked directly against the data first and found
+**no genuine stage-to-different-stage transitions exist anywhere in the 8
+CIC-IDS2017 days** — each day runs exactly one attack category start to
+finish. What the data does have, richly, is repeated attack-episode
+on/off cycles within a day (Wednesday alone contributes 21 separate DoS
+episodes). So `build_stage_duration_stats()` estimates **time-to-containment
+per stage** (how long an episode of stage X typically lasts) from real
+`Timestamp`-derived window durations across training days, using
+ground-truth labels only at training time — inference needs only the
+current predicted stage string.
+
+`estimate_containment_window()` returns a percentile-based range (p25-p90,
+"typical") plus the full observed range, not a single point estimate
+(episode durations here are heavily right-skewed — a few long episodes, many
+one-window blips — so mean±std would misrepresent the distribution), flags
+low-confidence stages (<3 historical episodes) rather than hiding them, and
+looks up a simple rules-based recommended action per stage (`ACTION_TABLE`),
+optionally qualified by a top explainability feature name (e.g. "driven by a
+scan-like spread across many destination ports").
+
+**Validated** two ways (`scripts/validate_containment.py`):
+- **Leave-one-day-out** across the 7 training days: only "Initial Access"
+  had 2+ days to cross-validate against (all other stages occur on exactly
+  one training day, so those folds are honestly skipped, not hidden) — 5/9
+  (56%) held-out episode instances fell within both the typical and full
+  observed ranges.
+- **True held-out day** (`Friday-Afternoon-DDoS` vs. stats from all 7
+  training days): true DDoS duration = **21.0 min**; the typical (p25-p90)
+  range `[1.0, 8.0]` **misses** it; the full observed range `[1.0, 24.0]`
+  **contains** it; a point estimate (median = 1.0 min) would have been off
+  by 20 minutes. A clean, real demonstration of why the brief specifically
+  asks for a range rather than a point estimate.
+
+### Feature 3 — Counterfactual Intervention Simulator (`counterfactual/`)
+Reuses the existing graph representation and rollout engine only — no
+simulation model. `counterfactual/graph_ops.py` implements two
+graph-structural mutation primitives, each returning a new `GraphSnapshot`
+(input never mutated) with correct edge-index reindexing and recomputed
+`num_flows`/`graph_attack_present`/`graph_attack_types`:
+
+- `isolate_host(snapshot, host_ip)` — removes a host and every edge
+  touching it. Covers "isolate a host/endpoint."
+- `block_flow(snapshot, src_ip, dst_ip, bidirectional=True)` — removes edges
+  between one specific host pair only. Covers "revoke an account/session"
+  and "block a specific flow" — at this graph's granularity (a host pair's
+  aggregated traffic per window), those are the same operation.
+
+**Disclosed limitation:** true per-port blocking is not implemented as a
+graph mutation. `graph/snapshot.py` aggregates individual flows into
+host-pair edges and keeps only `dst_port_nunique` (a *count* of distinct
+ports) as an edge feature — actual port numbers are discarded during that
+aggregation and aren't recoverable from a `GraphSnapshot`. True port-level
+blocking would require re-deriving the graph from the pre-aggregation
+per-flow DataFrame — out of scope here, noted for anyone extending it.
+
+`counterfactual/simulator.py`'s `simulate_intervention()` runs the existing
+`run_rollout()` twice — once on the original context, once on the
+action-modified context — and returns a before/after probability comparison
+per step, the resulting stage change, and simple rules-based side-effect
+notes (e.g. how many *other*, non-attack-flagged flows an isolated host
+would also lose).
+
+**Validated** (`scripts/validate_counterfactual.py`) against a real context
+window from the held-out `Friday-Afternoon-DDoS` day containing the known
+attack edge (`172.16.0.1 → 192.168.10.50`, confirmed by direct inspection of
+the day's ground-truth edge labels):
+
+| action | mean probability | stage |
+|---|---|---|
+| none (original) | 0.508 | Reconnaissance |
+| isolate `172.16.0.1` | 0.481 (−0.027) | Benign / No Stage |
+| block `172.16.0.1 ↔ 192.168.10.50` | 0.483 (−0.025) | Benign / No Stage |
+| negative control: isolate an unrelated host | 0.50772 (~+0.00000) | Reconnaissance (unchanged) |
+
+Both real defender actions measurably reduce predicted infiltration
+probability and flip the predicted stage back to benign; the negative
+control (isolating a host with no connection to the attack) moves
+probability by ~1e-5 — several orders of magnitude smaller than the real
+actions' ~0.025-0.027 effect, and small enough to be graph-aggregation noise
+from removing any node rather than a causal signal. This confirms the
+simulator is attributing effect to the targeted host specifically, not just
+reacting to any graph edit.
+
+### API wiring: momentum + containment on every `/analyze`, counterfactual as `POST /simulate`
+`ModelBundle` now builds `stage_duration_stats` once at server startup
+(`containment.estimator.build_stage_duration_stats` over every cached
+training day — deliberately including the day held out from *model
+training*, since this is the production bundle, not the controlled
+validation run above). Every `/analyze` response now carries a `momentum`
+and a `containment` field alongside the existing timeline/forecast/
+explanation, computed from data the endpoint was already producing (the
+walk-forward timeline, the K-step forecast, and explainability's own top
+feature names) — no extra model passes.
+
+`POST /simulate` acts on the context window cached from the most recent
+`/analyze` call in the running server process (`api/pipeline.run_pipeline`
+returns `(response_dict, final_context)`; `api/main.py` caches
+`final_context` in `_state["last_context"]`). This is a single-session
+offline demo, not a multi-tenant API, so there's one global cached-context
+slot, not per-user/per-session keying.
+
+```bash
+curl -X POST http://localhost:8000/analyze -F "csv_file=@path/to/flows.csv"
+curl -X POST http://localhost:8000/simulate \
+    -H "Content-Type: application/json" \
+    -d '{"action": "isolate_host", "host_ip": "172.16.0.1"}'
+```
+
+### What's built
+- `momentum/score.py`, `containment/estimator.py`,
+  `counterfactual/graph_ops.py`, `counterfactual/simulator.py`.
+- `api/schemas.py`'s `MomentumScore`/`ContainmentEstimate` (now part of
+  `AnalyzeResponse`) and `SimulateRequest`/`SimulateResponse`;
+  `api/pipeline.py`'s `run_simulation()` and the momentum/containment
+  computation inside `run_pipeline()`; `api/main.py`'s `POST /simulate`.
+- `scripts/validate_momentum.py`, `scripts/validate_containment.py`,
+  `scripts/validate_counterfactual.py` — real held-out-data validation for
+  all three features, not just unit tests.
+- 64 new backend unit/integration tests since Phase 7's 95 (159 total, all
+  passing): 17 momentum, 12 containment, 13 `graph_ops`, 15 `simulator`, 7
+  new `/simulate`+schema-shape API tests (plus the 10 pre-existing
+  `/analyze` tests, same file).
+- **A real bug found and fixed while testing:** the first `/simulate` test
+  for "no context cached yet" spun up a second `TestClient` against the same
+  module-level `app` — exiting that `with` block ran FastAPI's lifespan
+  shutdown, which called `_state.clear()` on the *same global dict* the
+  module-scoped `client` fixture was still using, wiping its loaded model
+  out from under still-pending tests in the same file. Fixed by directly
+  clearing/restoring just the `last_context` key on the shared `_state`
+  instead of creating a second app instance.
+
+### Frontend — Response Center (`frontend/src/components/panels/{MomentumPanel,ContainmentPanel,CounterfactualPanel}.tsx`)
+Built with the `frontend-design` skill, following CLAUDE.md's locked design
+system unchanged (same color tokens, IBM Plex Sans/Mono, no new patterns
+outside it). The existing single-page Live Feed dashboard was full, so
+Phase 9's three features live behind a second console mode — **Response
+center** — switched via a bracket-style mode control in the header next to
+the title (the way a radar console switches between a track display and a
+fire-control display, not the way a marketing site switches tabs). Response
+center has no independent upload flow; it acts entirely on the state the
+Live feed's last `/analyze` call produced.
+
+- **Momentum** gets a real semicircular instrument dial (`MomentumGauge.tsx`,
+  hand-drawn SVG arc + needle, no charting library) — the console's
+  signature element, since CLAUDE.md frames the whole app as "an instrument
+  panel," not a generic dashboard, and momentum is the one genuinely new
+  number this phase introduces. Band colors/thresholds are read from the
+  same `momentumSignal()` helper the readout text uses, so the dial and the
+  number can never disagree.
+- **Containment** gets a range bar (muted bracket = full observed range,
+  solid amber band = the p25-p90 "typical" range) plus the recommended
+  action, read back from the backend's own copy (`recommended_action`
+  starting with "No action needed" or not) rather than re-deriving
+  stage-is-active logic in the frontend.
+- **Counterfactual** is the fully interactive piece: an action toggle
+  (isolate host / block flow), host pickers populated from `flagged_flows`
+  (labeled "from observed flows," not claimed as the complete graph), a
+  live `POST /simulate` call, and a before/after chart. The chart's y-axis
+  auto-zooms to the actual data range rather than a fixed [0, 1] scale — a
+  fixed axis was found, while screenshotting this panel, to flatten the
+  real effect size (a few hundredths of a probability point, matching
+  `scripts/validate_counterfactual.py`'s numbers) into two visually
+  indistinguishable lines.
+- **Verified against the real running backend**, not just fixtures: scripted
+  a real file-input `change` event via Chrome DevTools Protocol against the
+  real `ddos_slice3.csv` fixture, through the real Vite proxy, to the real
+  FastAPI server — confirmed the real attacker host (`172.16.0.1`) surfaces
+  as the default host pick, and running the simulation live reduced mean
+  probability from 0.525 to 0.491, consistent with the standalone validation
+  script's numbers.
+
+### What's stubbed / TODO
+- Momentum's `newly_affected_host_ratio` signal is noisier than the other
+  three (see Feature 1's validation caveat above) — worth a second pass if
+  this becomes a headline metric in a demo.
+- Containment's leave-one-day-out validation only had one stage
+  ("Initial Access") with enough independent days to cross-validate — a
+  real limitation of this dataset's size, not the estimator's logic.
+- Counterfactual actions are graph-structural only (isolate host / block one
+  flow); true per-port blocking is not implemented (see disclosed limitation
+  above).
+- Host pickers in the Counterfactual panel are built from `flagged_flows`
+  (the attention-ranked subset), not the complete graph for that window —
+  disclosed in the field label, not hidden.
+
+### How to run
+```bash
+# Unit tests
+./.venv/bin/python -m pytest -q
+
+# Validate against real held-out data
+./.venv/bin/python scripts/validate_momentum.py
+./.venv/bin/python scripts/validate_containment.py
+./.venv/bin/python scripts/validate_counterfactual.py
+```
+
+## Phase 10 — Remaining Differentiator Features (Attack Future Replay, Multiple Parallel Futures, Explainable Attack Fingerprint)
+
+Phase 9 built 3 of the 6 high-impact features named in this project's reference
+brief (Momentum, Containment, Counterfactual Simulation). This phase builds
+the remaining 3, in the brief's own stated priority order, completing the
+full set — with the same rule as every other feature in this project: no
+fabricated numbers, and any gap between the brief's illustrative examples
+and what this model can actually support is disclosed, not papered over.
+
+### Feature 1 — Attack Future Replay (`api/pipeline.py`, extends `TimelinePoint`)
+The brief's #1 priority: an interactive timeline of observed + predicted
+events, with the network graph animating as the analyst scrubs through
+time. The backend piece was the harder part: every OBSERVED window's
+`TimelinePoint` now carries its own real per-window GNN attention
+(`top_flows`), not just the final window's — cheap to add because
+`compute_edge_attention` is a single forward pass over one snapshot (no
+backward pass, no temporal rollout), unlike the full Phase 5 explanation
+that stays attached to the final prediction only. Measured real added
+latency: **negligible** (2.2s total for a 29-window capture, same order as
+before this feature existed).
+
+**Honest limitation, not smoothed over:** the world model predicts a
+*latent embedding* for future windows, never a decoded graph (see
+`rollout/engine.py`'s own docstring on why) — so there is no real graph
+structure to show for PREDICTED steps. The frontend scrubber's topology
+view freezes on the last real observed graph during predicted steps,
+clearly labeled, rather than fabricating future network structure.
+
+**Frontend**: new **Mode 3: Attack Replay** (`ReplayPanel.tsx`) — a
+play/pause scrubber, a mini oscilloscope strip showing the scrub position,
+and the real topology graph updating to that exact window's real
+attention data as you move through observed history. Verified against real
+data: scrubbing to window 23 of a real DDoS capture shows a *different*
+real attack-flagged edge than the final window, confirming genuinely
+per-window (not copy-pasted) attention.
+
+### Feature 2 — Multiple Parallel Futures (`futures/parallel_futures.py`)
+The brief's #2 priority: several ranked possible outcomes instead of one
+deterministic forecast. Built via **MC-Dropout** (Gal & Ghahramani, 2016) —
+re-enabling the model's own already-trained dropout layers at inference
+time and running the same K-step rollout N=40 independent times. Each run's
+dropout noise perturbs the latent trajectory slightly differently, so the
+rollout can genuinely land on a different predicted stage; tallying
+outcomes across N samples gives a real probability distribution grounded
+in the model's own learned uncertainty — not invented percentages.
+
+Checked before building, not assumed: this architecture has **no
+BatchNorm anywhere** (GNN encoder, LSTM/Transformer temporal core, output
+heads all use only `nn.Dropout`), confirmed by grepping every model file.
+That matters because MC-Dropout requires `model.train()` to activate
+dropout sampling; with BatchNorm present that call would also start
+corrupting running statistics from single-sample batches. Since there's
+none, `model.train()` here only does what's wanted, and the model is
+always restored to `eval()` in a `finally` block — including a test that
+forces a mid-sampling exception and confirms `eval()` mode is still
+restored.
+
+**A real sanity check, not just a plausibility argument**: with
+`dropout=0.0`, all 40 samples collapse to exactly one outcome matching the
+deterministic rollout (`test_zero_dropout_collapses_to_single_deterministic_outcome`)
+— confirming the variability genuinely comes from dropout noise, not some
+other hidden randomness in the pipeline.
+
+**Cross-feature integration**: Phase 9's Momentum Score explicitly flagged
+`attack_path_expansion_available=False` because this feature didn't exist
+yet. Now that it does, Momentum's "expansion of predicted attack paths"
+signal is wired to the real ensemble (`path_expansion = 1 − probability of
+the top outcome`) — a confident, single-outcome forecast contributes zero
+expansion; a forecast that's genuinely spread across several plausible
+stages contributes more. Weights rebalanced (documented in
+`momentum/score.py`) to make room for it as a 5th signal.
+
+**Frontend**: `ParallelFuturesPanel.tsx`, added to **Mode 2: Response
+Center** next to Momentum — a ranked bar list, colored by the same
+severity signal as everywhere else in the app, with the real sample count
+shown so a low-confidence long-tail outcome is visibly low-confidence, not
+hidden behind a bare percentage.
+
+### Feature 3 — Explainable Attack Fingerprint (`fingerprint/attack_fingerprint.py`)
+The brief's last-priority feature: a per-category "similarity" score
+summarizing the attack's behavioral pattern, comparing current vs.
+predicted-future fingerprints.
+
+**A disclosed reframing, same pattern as every other Phase 9/10 feature**:
+the brief's example uses ATT&CK *tactic* names (Credential Access,
+Persistence, Data Exfiltration...) that don't all correspond to something
+this model actually predicts. This model's real, trained vocabulary is the
+6 MITRE **stage** labels used everywhere else in this project — using
+those as the fingerprint's dimensions instead of inventing scores for
+categories with no real signal behind them.
+
+The numbers come directly from the model's own real multi-label
+`attack_type_head` (independent sigmoid probabilities, already computed for
+every rollout step — see `rollout/engine.py`'s `attack_type_probs`), grouped
+by stage via the same `ATTACK_TYPE_TO_STAGE` table every other feature in
+this project uses. A stage's score is the **max** (not sum) probability
+among attack types mapping to it — sigmoid outputs are independent
+per-class probabilities, not a normalized distribution, so summing could
+exceed 1 and misrepresent the signal. Bucketed into High/≥50%,
+Medium/≥20%, Low similarity — the same 0.5 confidence threshold
+`rollout/mitre.py` already uses elsewhere, not a new arbitrary cutoff.
+
+**A real, checked limitation, not glossed over**: Exfiltration has *no*
+attack type mapped to it anywhere in `ATTACK_TYPE_TO_STAGE` (CIC-IDS2017
+has no clean exfiltration category — see `rollout/mitre.py`'s own
+docstring). Its fingerprint score is always exactly 0.0 with
+`driving_attack_type: null`, stated explicitly rather than silently
+showing a misleadingly-confident zero. Verified with a dedicated test
+(`test_exfiltration_always_zero_with_no_driver`) that checks this against
+the real `ATTACK_TYPE_TO_STAGE` table, not a hardcoded assumption.
+
+"Current" vs. "predicted future" (the brief's own comparison, point 5 of
+its "how it works" list): current = the forecast's own freshest first-step
+prediction (same convention Momentum and Containment already use);
+predicted = the mean attack-type probabilities across the whole K-step
+forecast horizon.
+
+**Frontend**: `AttackFingerprintPanel.tsx`, added to **Mode 1: Live Feed**
+below Explainability — a 6-row comparison table (current similarity →
+predicted similarity → trend arrow), with the real driving attack type
+named in the summary line above it.
+
+### What's built
+- `futures/parallel_futures.py`, `fingerprint/attack_fingerprint.py`.
+- `api/pipeline.py`'s per-window attention loop; `api/schemas.py`'s
+  `MultipleFutures`/`FutureOutcome`/`AttackFingerprint`/
+  `StageFingerprintEntry`/`FingerprintComparisonEntry`, and `TimelinePoint`
+  gaining `top_flows`.
+- `momentum/score.py`'s `path_expansion` signal and 5-signal weight
+  rebalance.
+- Frontend: **Mode 3: Attack Replay** (`ReplayPanel.tsx`), plus
+  `ParallelFuturesPanel.tsx` (Mode 2) and `AttackFingerprintPanel.tsx`
+  (Mode 1). New icons added to `lib/icons.ts` (`Fingerprint`, `GitFork`,
+  `Pause`, `SkipBack`).
+- 32 new backend unit/integration tests since Phase 9's 159 (191 total,
+  all passing): 8 in `test_parallel_futures.py`, 16 in
+  `test_attack_fingerprint.py`, 5 new in `test_momentum.py`
+  (`TestPathExpansionSignal`), the rest new assertions in `test_api.py`
+  (per-window attention shape, `multiple_futures` shape,
+  `attack_fingerprint` shape).
+- Verified end-to-end against the real held-out DDoS capture via a
+  scripted browser session (not just unit tests): real per-window
+  attention driving the replay scrubber, real MC-Dropout outcome
+  distribution, real fingerprint scores with the real driving attack type
+  named.
+
+### What's stubbed / TODO
+- Multiple Parallel Futures resamples the *same* encoded context via the
+  model's own uncertainty — it answers "how consistent is the model's own
+  forecast," not "what would a structurally different starting condition
+  produce" (that's a different question, closer to what Counterfactual
+  Intervention Simulation already answers for defender actions
+  specifically).
+- MC-Dropout percentages are a Monte Carlo estimate: re-running shifts them
+  slightly. N=40 was chosen for a fast, stable top-ranked outcome in
+  practice, not tuned against a held-out accuracy target (there isn't a
+  ground-truth "correct" distribution to tune against here).
+- Attack Future Replay's "update when new telemetry arrives" (the brief's
+  point 7) doesn't apply — this system analyzes a captured/uploaded file,
+  not a live stream; disclosed rather than faked with an artificial live
+  indicator.
+
+### How to run
+```bash
+# Unit tests
+./.venv/bin/python -m pytest -q
+
+# Frontend
+cd frontend && npm run dev
+```

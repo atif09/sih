@@ -19,10 +19,13 @@ data/*.DS_Store
 
 # Model artifacts / checkpoints (Phase 3+) -- regenerable via
 # models/train.py + configs/training.yaml + the fixed seed
-checkpoints/
+checkpoints/*
 *.pt
 *.pth
 *.ckpt
+# Exception: the small (<1MB) shipped model, required by the Docker deployment
+!checkpoints/phase3/
+!checkpoints/phase3/*
 
 # OS / editor
 .DS_Store
@@ -32,3 +35,5 @@ checkpoints/
 # Test / cache
 .pytest_cache/
 .coverage
+
+

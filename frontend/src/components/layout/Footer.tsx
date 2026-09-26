@@ -59,9 +59,6 @@ export function Footer() {
           </>
         )}
       </div>
-      <div className="flex items-center gap-3">
-        <span className="text-on-surface">SIH26153 // Attack Forecast Console</span>
-      </div>
     </footer>
   )
 }

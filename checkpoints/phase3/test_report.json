@@ -1,0 +1,17 @@
+{
+  "held_out_day": "Friday-Afternoon-DDoS",
+  "metrics": {
+    "dynamics_loss": 0.25980448722839355,
+    "attack_loss": 0.9717093110084534,
+    "attack_type_loss": 0.028805792331695557,
+    "total_loss": 1.2459166049957275,
+    "accuracy": 0.9633333333333334,
+    "precision": 0.9506172839506173,
+    "recall": 0.9166666666666666,
+    "f1": 0.9333333333333333,
+    "roc_auc": 0.9889219576719577,
+    "f1_best_threshold": 0.9333333333333333,
+    "best_threshold": 0.49999999999999994,
+    "benign_to_attack_recall": 0.0
+  }
+}

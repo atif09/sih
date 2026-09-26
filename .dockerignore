@@ -1,0 +1,28 @@
+# Everything below is local-only and never needed inside the deployed
+# container -- without this file, Docker would try to upload the whole
+# ~2.5GB repo folder (mostly raw datasets and the local venv) as build
+# context before the build even starts.
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+
+# Raw datasets -- large, not needed at inference time (see configs/pipeline.yaml's
+# `paths` section: only used by training/benchmark scripts, never by /analyze).
+data/
+
+# Superseded, unused.
+old-frontend/
+
+# Frontend build artifacts and deps -- rebuilt fresh inside the image by
+# the frontend-build stage; node_modules/dist on the host are stale/irrelevant.
+frontend/node_modules/
+frontend/dist/
+
+# Editor/OS cruft, git metadata, this session's own scratch outputs.
+.git/
+.DS_Store
+.vscode/
+.idea/

@@ -26,6 +26,7 @@ import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.pipeline import InsufficientDataError, ModelBundle, run_pipeline, run_simulation
 from api.schemas import AnalyzeResponse, CalibrationResponse, ErrorResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse
@@ -89,6 +90,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class StripAPIPrefixMiddleware:
+    """Deployment mirrors the Vite dev proxy's own rewrite
+    (`path.replace(/^\\/api/, '')`) so the SAME frontend code -- which
+    always calls `/api/analyze`, `/api/health`, etc. -- works unchanged in
+    production, where there's no separate dev server to do that rewrite.
+    In dev this middleware is simply never exercised, since Vite's proxy
+    already strips the prefix before the request reaches this app; in
+    prod (frontend served same-origin, see the StaticFiles mount at the
+    bottom of this file) it does the identical job. Real API routes are
+    untouched either way -- curl/`/docs` against the bare paths still work."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/"):
+            scope = dict(scope)
+            scope["path"] = scope["path"][len("/api"):]
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(StripAPIPrefixMiddleware)
 
 
 @app.get("/health")
@@ -230,3 +255,20 @@ async def simulate(request: SimulateRequest):
     except Exception as exc:
         logger.exception("Pipeline failure during /simulate")
         raise HTTPException(status_code=500, detail=f"Simulation error: {exc}")
+
+
+# Deployment (Docker/Hugging Face Spaces): serves the built frontend
+# (frontend/dist, produced by `npm run build`) from this same process, so
+# the console and the API share one origin -- no separate frontend host,
+# no cross-origin request to configure. Registered LAST and deliberately
+# guarded on the directory actually existing: local dev never builds
+# frontend/dist (Vite's own dev server serves the frontend instead), so
+# this mount is silently skipped there rather than erroring, and because
+# it's added after every real @app.get/@app.post above, those routes are
+# always matched first -- this only catches whatever's left over.
+_frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
+    logger.info(f"Serving built frontend from {_frontend_dist}.")
+else:
+    logger.info(f"{_frontend_dist} not found -- not serving a frontend (expected in local dev; run `npm run build` for a deployment build).")
