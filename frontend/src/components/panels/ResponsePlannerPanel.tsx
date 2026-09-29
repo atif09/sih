@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { IconAlert, IconInfo, IconRun, IconTune } from "../../lib/icons"
+import { IconAlert, IconArrowDown, IconArrowUp, IconRun, IconTune } from "../../lib/icons"
 import { planResponse } from "../../lib/api"
 import type { PlannedActionItem } from "../../lib/types"
 import { Badge } from "../primitives/Badge"
@@ -23,7 +23,6 @@ export function ResponsePlannerPanel({ defaultK }: { defaultK: number }) {
   const [status, setStatus] = useState<RunStatus>("idle")
   const [error, setError] = useState<string | null>(null)
   const [actions, setActions] = useState<PlannedActionItem[] | null>(null)
-  const [warning, setWarning] = useState<string | null>(null)
 
   async function run() {
     setStatus("running")
@@ -31,7 +30,6 @@ export function ResponsePlannerPanel({ defaultK }: { defaultK: number }) {
     try {
       const res = await planResponse({ k: defaultK })
       setActions(res.actions)
-      setWarning(res.warning)
       setStatus("idle")
     } catch (err) {
       setStatus("error")
@@ -89,8 +87,9 @@ export function ResponsePlannerPanel({ defaultK }: { defaultK: number }) {
                 <tr key={a.action_label} className={i === 0 ? "bg-primary-container/10" : ""}>
                   <td className="px-1.5 py-1.5 font-semibold text-on-surface">{a.action_label}</td>
                   <td className="px-1.5 py-1.5 text-right">
-                    <DataReadout className={a.risk_reduction > 0 ? "text-secondary-fixed-dim" : a.risk_reduction < 0 ? "text-error" : ""}>
-                      {a.risk_reduction >= 0 ? "-" : "+"}
+                    <DataReadout className={`inline-flex items-center gap-1 ${a.risk_reduction > 0 ? "text-secondary-fixed-dim" : a.risk_reduction < 0 ? "text-error" : ""}`}>
+                      {a.risk_reduction > 0 && <IconArrowDown size={11} />}
+                      {a.risk_reduction < 0 && <IconArrowUp size={11} />}
                       {Math.abs(a.risk_reduction).toFixed(4)}
                     </DataReadout>
                   </td>
@@ -102,12 +101,6 @@ export function ResponsePlannerPanel({ defaultK }: { defaultK: number }) {
               ))}
             </tbody>
           </table>
-
-          {warning && (
-            <p className="flex items-start gap-1.5 border-l-2 border-warning pl-2.5 font-mono text-[10px] leading-relaxed text-on-surface-variant">
-              <IconInfo size={12} className="mt-px shrink-0" /> {warning}
-            </p>
-          )}
         </>
       )}
     </Panel>

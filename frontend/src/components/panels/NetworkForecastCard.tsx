@@ -1,4 +1,4 @@
-import { IconArrowDown, IconArrowUp, IconForecastView, IconInfo } from "../../lib/icons"
+import { IconArrowDown, IconArrowUp, IconForecastView } from "../../lib/icons"
 import { Panel } from "../primitives/Panel"
 import type { NetworkForecastView } from "../../lib/types"
 
@@ -80,11 +80,6 @@ export function NetworkForecastCard({ forecast }: { forecast: NetworkForecastVie
           )
         })}
       </div>
-
-      <p className="flex items-start gap-1.5 border-t border-outline-variant pt-2 font-mono text-[10px] leading-relaxed text-on-surface-variant">
-        <IconInfo size={12} className="mt-px shrink-0" />
-        Predicted values decode a real forecast latent through a small model trained on top of the frozen world model -- moderate, disclosed reliability (R² shown per stat), not a confident claim.
-      </p>
     </Panel>
   )
 }

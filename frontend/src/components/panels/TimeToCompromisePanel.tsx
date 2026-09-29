@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { Area, CartesianGrid, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { IconClock, IconInfo } from "../../lib/icons"
+import { IconClock } from "../../lib/icons"
 import { Panel } from "../primitives/Panel"
 import { DataReadout } from "../primitives/DataReadout"
 import type { TimeToCompromise } from "../../lib/types"
@@ -74,11 +74,6 @@ export function TimeToCompromisePanel({ ttc }: { ttc: TimeToCompromise }) {
         <span className="text-on-surface-variant">never crossed within horizon</span>
         <DataReadout>{(ttc.never_crossed_fraction * 100).toFixed(1)}%</DataReadout>
       </div>
-
-      <p className="flex items-start gap-1.5 font-mono text-[10px] leading-relaxed text-on-surface-variant">
-        <IconInfo size={12} className="mt-px shrink-0" />
-        {ttc.n_samples} MC-Dropout samples, threshold {ttc.threshold}. Raw empirical fractions, not temperature-scaled probabilities -- see futures/time_to_compromise.py.
-      </p>
     </Panel>
   )
 }
