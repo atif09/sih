@@ -196,6 +196,19 @@ body {
   animation-delay: var(--drift-delay, 0s);
 }
 
+/* Home page's one scroll-triggered reveal (see components/home/Reveal.tsx)
+   -- content sits 16px below rest and fades up into place the first time
+   it enters view. Covered by the prefers-reduced-motion override below. */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+.reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

@@ -1,5 +1,6 @@
 import { ArrowRight, Search } from "lucide-react"
 import { FloatingArtifacts } from "../components/home/FloatingArtifacts"
+import { Reveal } from "../components/home/Reveal"
 import { IconExplainability, IconRadar, IconTopology, IconUpload } from "../lib/icons"
 import { Badge } from "../components/primitives/Badge"
 import type { Signal } from "../lib/severity"
@@ -142,21 +143,21 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
       </section>
 
       {/* --------------------------------------------------------------- STATS */}
-      <section className="grid grid-cols-1 divide-x divide-y divide-outline-variant border-b border-outline-variant sm:grid-cols-3 sm:divide-y-0">
+      <Reveal className="grid grid-cols-1 divide-x divide-y divide-outline-variant border-b border-outline-variant sm:grid-cols-3 sm:divide-y-0">
         {STATS.map((s) => (
           <div key={s.label} className="flex flex-col gap-1 px-6 py-8 text-center">
             <DataStat value={s.value} />
             <span className="font-mono text-[10px] uppercase tracking-wide text-on-surface-variant">{s.label}</span>
           </div>
         ))}
-      </section>
+      </Reveal>
 
       {/* ------------------------------------------------------------ WORKFLOW */}
       <section id="workflow" className="border-b border-outline-variant px-6 py-24">
         <p className="mb-12 text-center font-mono text-[10px] uppercase tracking-[0.25em] text-on-surface-variant">Forecast pipeline</p>
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
-          {WORKFLOW.map((step) => (
-            <div key={step.n} className="flex flex-col gap-3">
+          {WORKFLOW.map((step, i) => (
+            <Reveal key={step.n} delayMs={i * 90} className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 <span className="font-mono text-xs text-on-surface-variant/40">{step.n}</span>
                 <span className="flex h-8 w-8 items-center justify-center border border-outline-variant text-primary-container">
@@ -165,7 +166,7 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
               </div>
               <h3 className="text-[15px] font-semibold">{step.title}</h3>
               <p className="text-[13px] leading-relaxed text-on-surface-variant">{step.body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </section>
@@ -173,7 +174,7 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
       {/* ------------------------------------------------------------ PROFILE */}
       <section id="profiling" className="border-b border-outline-variant px-6 py-24">
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-16 lg:grid-cols-2">
-          <div>
+          <Reveal>
             <h2 className="mb-8 text-3xl font-bold tracking-tight">Full-Spectrum Attack Profiling</h2>
             <ol className="divide-y divide-outline-variant border-t border-outline-variant">
               {PROFILE_ITEMS.map((item, i) => (
@@ -183,9 +184,9 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
                 </li>
               ))}
             </ol>
-          </div>
+          </Reveal>
 
-          <div className="border border-outline-variant bg-surface-container-low p-6">
+          <Reveal delayMs={120} className="border border-outline-variant bg-surface-container-low p-6">
             <div className="mb-6 flex items-center justify-between">
               <span className="font-mono text-[10px] uppercase tracking-wide text-on-surface-variant">Sample analysis</span>
               <Badge signal="warning">window 30</Badge>
@@ -203,45 +204,45 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
               <Stat label="flow count" value="4,287" />
               <Stat label="attention" value="0.6250" />
             </div>
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* ------------------------------------------------------------- STAGES */}
       <section id="stages" className="border-b border-outline-variant px-6 py-24">
         <div className="mx-auto max-w-5xl">
-          <div className="mb-10 flex flex-wrap items-end justify-between gap-3">
+          <Reveal className="mb-10 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-3xl font-bold tracking-tight">Core MITRE Stages</h2>
               <p className="mt-2 text-[13px] text-on-surface-variant">The kill-chain vocabulary the world model actually predicts.</p>
             </div>
-          </div>
+          </Reveal>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {STAGES.map((s) => (
-              <div key={s.title} className="flex flex-col gap-3 border border-outline-variant bg-surface-container-low p-5">
+            {STAGES.map((s, i) => (
+              <Reveal key={s.title} delayMs={i * 60} className="flex flex-col gap-3 border border-outline-variant bg-surface-container-low p-5">
                 <div className="flex items-center justify-between">
                   <Badge signal={s.signal}>{s.tag}</Badge>
                   <span className="font-mono text-[10px] text-on-surface-variant">{s.code}</span>
                 </div>
                 <h3 className="text-[15px] font-semibold">{s.title}</h3>
                 <p className="flex-1 text-[12px] leading-relaxed text-on-surface-variant">{s.body}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
       {/* --------------------------------------------------------------- STACK */}
-      <section className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 border-b border-outline-variant px-6 py-14">
+      <Reveal className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 border-b border-outline-variant px-6 py-14">
         {STACK.map((t) => (
           <span key={t} className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/60">
             {t}
           </span>
         ))}
-      </section>
+      </Reveal>
 
       {/* ------------------------------------------------------------------ CTA */}
-      <section className="flex flex-col items-center gap-5 px-6 py-28 text-center">
+      <Reveal className="flex flex-col items-center gap-5 px-6 py-28 text-center">
         <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to forecast an attack?</h2>
         <p className="max-w-md text-[14px] text-on-surface-variant">
           Launch the console, upload a capture, and watch the world model roll the network state forward.
@@ -253,7 +254,7 @@ export function Home({ onLaunch }: { onLaunch: () => void }) {
           Launch Console <ArrowRight size={14} />
         </button>
         <code className="mt-2 font-mono text-[11px] text-on-surface-variant/60">POST /analyze -F csv_file=@capture.csv</code>
-      </section>
+      </Reveal>
 
       {/* --------------------------------------------------------------- FOOTER */}
       <footer className="flex flex-col gap-6 border-t border-outline-variant px-6 py-10 sm:flex-row sm:items-start sm:justify-between">
