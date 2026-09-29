@@ -50,6 +50,7 @@ COPY graph/ ./graph/
 COPY models/ ./models/
 COPY momentum/ ./momentum/
 COPY rollout/ ./rollout/
+COPY surprise/ ./surprise/
 COPY checkpoints/ ./checkpoints/
 
 # The built frontend, served as static files by FastAPI itself (see
