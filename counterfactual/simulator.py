@@ -62,6 +62,37 @@ def apply_action(context: list[GraphSnapshot], action: InterventionAction) -> li
     raise ValueError(f"Unknown action kind: {action.kind!r} (expected 'isolate_host' or 'block_flow')")
 
 
+def count_normal_flows_disrupted(action: InterventionAction, current_snapshot: GraphSnapshot) -> int:
+    """Real count of non-attack-labeled edges this action would cut in the
+    CURRENT snapshot -- the same computation _side_effects' text warning is
+    built from, exposed as a plain int so the Response Planner (see
+    counterfactual/planner.py) can rank actions by it without re-parsing a
+    sentence. isolate_host: every OTHER (non-flagged) edge touching the
+    host. block_flow: this specific edge, 0 if ground truth marks it
+    attack traffic (nothing "normal" is being cut)."""
+    if action.kind == "isolate_host":
+        host = action.host_ip
+        if host not in current_snapshot.node_ids:
+            return 0
+        idx = current_snapshot.node_ids.index(host)
+        touching = (current_snapshot.edge_index[0] == idx) | (current_snapshot.edge_index[1] == idx)
+        total_touching = int(touching.sum())
+        flagged_touching = int((touching & (current_snapshot.edge_labels == 1)).sum())
+        return total_touching - flagged_touching
+
+    if action.kind == "block_flow":
+        src_idx = current_snapshot.node_ids.index(action.src_ip) if action.src_ip in current_snapshot.node_ids else None
+        dst_idx = current_snapshot.node_ids.index(action.dst_ip) if action.dst_ip in current_snapshot.node_ids else None
+        if src_idx is None or dst_idx is None:
+            return 0
+        forward = (current_snapshot.edge_index[0] == src_idx) & (current_snapshot.edge_index[1] == dst_idx)
+        match = forward | ((current_snapshot.edge_index[0] == dst_idx) & (current_snapshot.edge_index[1] == src_idx)) if action.bidirectional else forward
+        non_attack = match & (current_snapshot.edge_labels == 0)
+        return int(non_attack.sum())
+
+    return 0
+
+
 def _side_effects(action: InterventionAction, current_snapshot: GraphSnapshot) -> list[str]:
     """Simple, rules-based trade-off notes -- not a model. Counts real
     structure in the current snapshot (e.g. how many OTHER, non-flagged
@@ -72,11 +103,7 @@ def _side_effects(action: InterventionAction, current_snapshot: GraphSnapshot) -
     if action.kind == "isolate_host":
         host = action.host_ip
         if host in current_snapshot.node_ids:
-            idx = current_snapshot.node_ids.index(host)
-            touching = (current_snapshot.edge_index[0] == idx) | (current_snapshot.edge_index[1] == idx)
-            total_touching = int(touching.sum())
-            flagged_touching = int((touching & (current_snapshot.edge_labels == 1)).sum())
-            benign_touching = total_touching - flagged_touching
+            benign_touching = count_normal_flows_disrupted(action, current_snapshot)
             if benign_touching > 0:
                 effects.append(
                     f"Isolating {host} would also cut {benign_touching} other flow(s) on this host "
