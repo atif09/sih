@@ -39,6 +39,8 @@ class TimelinePoint(BaseModel):
         default_factory=list,
         description="Attack Future Replay: real GNN attention over THIS window's own observed graph (cheap forward-pass-only attention, not the full Phase 5 gradient explanation, which stays attached to the final prediction only). Lets a replay scrubber show genuine per-window structure for every OBSERVED window.",
     )
+    surprise_percentile: float | None = Field(default=None, description="Surprise Alarm (see surprise/score.py): real dynamics-prediction error for this observed transition, ranked against a reference distribution of benign-to-benign transitions from the training days, in [0, 100]. None when this transition touches an empty (zero-flow) window -- see surprise/score.py's is_informative_transition for why that case is excluded rather than scored.")
+    surprise_alarm: bool = Field(description="True when surprise_percentile crosses the empirically-set alarm threshold -- see surprise/score.py's module docstring for the held-out-day validation behind that threshold. Always False when surprise_percentile is None")
 
 
 class ForecastPoint(BaseModel):
@@ -132,6 +134,52 @@ class AttackFingerprint(BaseModel):
     summary: str
 
 
+class SurpriseAlarmSummary(BaseModel):
+    """Surprise Alarm (differentiator): real dynamics-prediction error --
+    reuses the model's own existing training loss, no new head or retraining
+    -- ranked against a reference distribution of real benign-to-benign
+    transitions from the training days. See surprise/score.py's module
+    docstring for the full method and its honest limitations (detects
+    "different from training distribution," not "malicious" specifically)."""
+
+    current_percentile: float | None = Field(default=None, description="Most recent observed window's surprise percentile, in [0, 100]. None if the upload has no timeline entries to score (e.g. num_windows == context_len)")
+    alarm_raised: bool = Field(description="True if the most recent observed window crossed the alarm threshold")
+    max_percentile_in_window: float | None = Field(default=None, description="Highest surprise percentile seen anywhere in this capture's timeline -- surfaces a spike even if it isn't the most recent point")
+    explanation: str
+
+
+class TimeToCompromise(BaseModel):
+    """Differentiator: "what fraction of plausible futures have crossed the
+    attack threshold by minute k" -- built from the same MC-Dropout ensemble
+    as multiple_futures (see futures/time_to_compromise.py). RAW empirical
+    Monte-Carlo fractions, not temperature-scaled probabilities -- see that
+    module's docstring for the honest limitation and the real bug fix
+    (MC-Dropout sampling was previously a silent no-op) it depends on."""
+
+    n_samples: int
+    threshold: float = Field(description="Infiltration probability a sample must cross to count as 'compromised' at that step")
+    cumulative_fraction: list[float] = Field(description="Length k; cumulative_fraction[i] = fraction of MC-Dropout samples that had crossed `threshold` by step i+1")
+    median_crossing_step: int | None = Field(default=None, description="Smallest step where cumulative_fraction >= 0.5; None if fewer than half the samples ever crossed within the k-step horizon")
+    never_crossed_fraction: float = Field(description="Fraction of samples that never crossed the threshold within the k-step horizon")
+
+
+class NetworkForecastView(BaseModel):
+    """Network Forecast View (differentiator): a real predicted future
+    latent, decoded back into human-readable graph-level stats -- see
+    models/forecast_decoder.py. `now_stats` are real ground truth from the
+    actual current window (no model involved); `predicted_stats` come from
+    a small decoder trained on top of the FROZEN world model (never
+    touching the base checkpoint). `held_out_r2` is ALWAYS included so the
+    frontend can show real per-stat reliability, not just a number --
+    moderate (0.28-0.49) on this project's own held-out day, disclosed as
+    such, not hidden."""
+
+    step: int = Field(description="Which forecast step these predicted_stats came from (1-indexed)")
+    now_stats: dict[str, float]
+    predicted_stats: dict[str, float]
+    held_out_r2: dict[str, float] | None = Field(default=None, description="Real R^2 per stat on the held-out day, from scripts/train_forecast_decoder.py's own validation run -- None only if the decoder was loaded without its validation file")
+
+
 class AnalyzeResponse(BaseModel):
     filename: str
     file_type: str = Field(description="'csv', 'pcap', or 'csv+pcap'")
@@ -149,6 +197,9 @@ class AnalyzeResponse(BaseModel):
     containment: ContainmentEstimate = Field(description="Phase 9, Feature 2")
     multiple_futures: MultipleFutures = Field(description="Phase 10 differentiator")
     attack_fingerprint: AttackFingerprint = Field(description="Phase 10 differentiator")
+    surprise_alarm: SurpriseAlarmSummary = Field(description="Differentiator: novelty detection via the model's own dynamics-prediction error")
+    time_to_compromise: TimeToCompromise = Field(description="Differentiator: cumulative probability-of-compromise-by-minute-k from the MC-Dropout ensemble")
+    network_forecast: NetworkForecastView | None = Field(default=None, description="Differentiator: decoded human-readable future network stats. None if no forecast_decoder was shipped with this checkpoint")
 
     warnings: list[str] = Field(default_factory=list, description="Non-fatal notices, e.g. packet-level features unavailable, short capture")
 
@@ -229,3 +280,24 @@ class SimulateResponse(BaseModel):
     original_stage: str = Field(description="Predicted MITRE stage one step ahead, unmodified graph")
     modified_stage: str = Field(description="Predicted MITRE stage one step ahead, modified graph")
     side_effects: list[str] = Field(description="Simple, rules-based trade-off notes about the action -- not a model prediction")
+
+
+class PlanResponseRequest(BaseModel):
+    """Response Planner (differentiator): acts on the same cached context as
+    /simulate. Call /analyze first."""
+
+    k: int | None = Field(default=None, description="Rollout horizon; defaults to the model bundle's default_k")
+
+
+class PlannedActionItem(BaseModel):
+    action_label: str
+    risk_reduction: float = Field(description="mean(original_probability) - mean(modified_probability) across the rollout; positive means the action reduced predicted risk, negative means it made the forecast worse")
+    normal_flows_disrupted: int = Field(description="Real count of non-attack-labeled edges this action would cut in the current window")
+    original_stage: str
+    modified_stage: str
+    side_effects: list[str]
+
+
+class PlanResponseResponse(BaseModel):
+    actions: list[PlannedActionItem] = Field(description="Sorted by risk_reduction descending, ties broken by fewer normal_flows_disrupted. See counterfactual/planner.py's module docstring for the honest limitation on trusting small deltas as a confident ranking.")
+    warning: str = Field(description="Always shown -- see counterfactual/planner.py's disclosed limitation on ranking small, unvalidated deltas")

@@ -9,7 +9,11 @@ import { MomentumPanel } from "./components/panels/MomentumPanel"
 import { ContainmentBanner } from "./components/panels/ContainmentBanner"
 import { CounterfactualPanel } from "./components/panels/CounterfactualPanel"
 import { AttackFingerprintPanel } from "./components/panels/AttackFingerprintPanel"
+import { SurpriseAlarmPanel } from "./components/panels/SurpriseAlarmPanel"
+import { NetworkForecastCard } from "./components/panels/NetworkForecastCard"
+import { TimeToCompromisePanel } from "./components/panels/TimeToCompromisePanel"
 import { ParallelFuturesTree } from "./components/panels/ParallelFuturesTree"
+import { ResponsePlannerPanel } from "./components/panels/ResponsePlannerPanel"
 import { ReplayPanel } from "./components/panels/ReplayPanel"
 import { IconSpotlight } from "./lib/icons"
 import type { AnalyzeResponse } from "./lib/types"
@@ -86,6 +90,14 @@ function App({ onHome }: { onHome?: () => void }) {
                   </div>
                 </div>
 
+                <div className={`transition-all duration-300 ${predictionSpotlight ? "ring-2 ring-error" : ""}`}>
+                  <SurpriseAlarmPanel timeline={result.timeline} summary={result.surprise_alarm} />
+                </div>
+
+                <div className={`transition-all duration-300 ${predictionSpotlight ? "ring-2 ring-error" : ""}`}>
+                  <NetworkForecastCard forecast={result.network_forecast} />
+                </div>
+
                 <div className={predictionSpotlight ? "pointer-events-none opacity-20 grayscale transition-all duration-300" : "transition-all duration-300"}>
                   <AttackFingerprintPanel fingerprint={result.attack_fingerprint} />
                 </div>
@@ -107,8 +119,10 @@ function App({ onHome }: { onHome?: () => void }) {
                   </div>
                   <div className="flex flex-col gap-3 lg:col-span-4">
                     <MomentumPanel momentum={result.momentum} currentProbability={result.forecast[0]?.infiltration_probability} />
+                    <TimeToCompromisePanel ttc={result.time_to_compromise} />
                   </div>
                 </div>
+                <ResponsePlannerPanel defaultK={Math.min(5, result.forecast.length || 5)} />
                 <ParallelFuturesTree futures={result.multiple_futures} />
               </>
             ) : (

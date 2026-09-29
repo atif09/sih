@@ -1,5 +1,5 @@
 import axios from "axios"
-import type { AnalyzeResponse, CalibrationResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse } from "./types"
+import type { AnalyzeResponse, CalibrationResponse, PlanResponseRequest, PlanResponseResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse } from "./types"
 
 // Vite dev server proxies /api -> http://localhost:8000 (see vite.config.ts).
 // No external hosts anywhere -- fully offline against the local backend.
@@ -23,6 +23,13 @@ export async function analyze(
 // recent /analyze call -- there is no file upload here.
 export async function simulate(request: SimulateRequest): Promise<SimulateResponse> {
   const res = await client.post<SimulateResponse>("/simulate", request)
+  return res.data
+}
+
+// Response Planner (differentiator). Same cached-context convention as
+// simulate() above -- call analyze() first.
+export async function planResponse(request: PlanResponseRequest): Promise<PlanResponseResponse> {
+  const res = await client.post<PlanResponseResponse>("/plan-response", request)
   return res.data
 }
 

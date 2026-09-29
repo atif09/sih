@@ -28,6 +28,7 @@ import torch
 import yaml
 
 from containment.estimator import StageDurationStats, build_stage_duration_stats, estimate_containment_window
+from counterfactual.planner import plan_response
 from counterfactual.simulator import InterventionAction, simulate_intervention
 from explain.attention import compute_edge_attention, top_edges_overall
 from explain.explainer import explain_prediction
@@ -36,13 +37,16 @@ from features.packet_features import detect_port_scan_signatures, extract_packet
 from features.pcap_to_flows import extract_flow_features_from_pcap
 from features.windowing import merge_flow_and_packet_features
 from fingerprint.attack_fingerprint import compute_attack_fingerprint
-from futures.parallel_futures import sample_parallel_futures
+from futures.parallel_futures import run_mc_dropout_samples, sample_parallel_futures
+from futures.time_to_compromise import compute_time_to_compromise
 from graph.snapshot import EDGE_FEATURE_NAMES, GraphSnapshot, NODE_FEATURE_NAMES, build_snapshots_for_day
 from models.dataset import load_all_days
 from models.normalization import FeatureNormalizer
 from models.world_model import WorldModel, WorldModelConfig
+from models.forecast_decoder import STAT_NAMES, ForecastDecoder, compute_target_stats, inverse_transform_targets
 from momentum.score import compute_momentum
 from rollout.engine import run_rollout
+from surprise.score import ALARM_PERCENTILE, SurpriseReference, compute_dynamics_surprise, is_informative_transition
 
 
 class InsufficientDataError(ValueError):
@@ -61,6 +65,9 @@ class ModelBundle:
     seq_len: int
     default_k: int
     stage_duration_stats: dict[str, StageDurationStats]
+    surprise_reference: SurpriseReference | None
+    forecast_decoder: ForecastDecoder | None
+    forecast_decoder_r2: dict[str, float] | None
 
     @classmethod
     def load(cls, checkpoint_dir: str | Path, pipeline_config_path: str | Path, device: torch.device) -> "ModelBundle":
@@ -114,12 +121,40 @@ class ModelBundle:
             day_snapshots = load_all_days(run_config["data"]["processed_dir"])
             stage_duration_stats = build_stage_duration_stats(day_snapshots, window_size_seconds)
 
+        # Surprise Alarm reference distribution (see surprise/score.py) --
+        # same precomputed-JSON-if-present pattern as stage_duration_stats
+        # above. None (not an empty reference) when absent, so callers can
+        # tell "no reference available" apart from "reference is empty."
+        surprise_reference_path = checkpoint_dir / "surprise_reference.json"
+        surprise_reference = SurpriseReference.load(surprise_reference_path) if surprise_reference_path.exists() else None
+
+        # Network Forecast View decoder (see models/forecast_decoder.py) --
+        # a small MLP trained SEPARATELY on top of this frozen model
+        # (scripts/train_forecast_decoder.py), never touching best_model.pt.
+        # Loaded only if both the weights and their real held-out validation
+        # numbers exist -- forecast_decoder_r2 is surfaced in every response
+        # so the frontend can show per-stat reliability instead of a bare
+        # number with no honesty signal attached.
+        decoder_path = checkpoint_dir / "forecast_decoder.pt"
+        decoder_r2_path = checkpoint_dir / "forecast_decoder_validation.json"
+        if decoder_path.exists() and decoder_r2_path.exists():
+            forecast_decoder = ForecastDecoder(latent_dim=wm_config.latent_dim).to(device)
+            forecast_decoder.load_state_dict(torch.load(decoder_path, map_location=device))
+            forecast_decoder.eval()
+            forecast_decoder_r2 = json.loads(decoder_r2_path.read_text())["held_out_r2"]
+        else:
+            forecast_decoder = None
+            forecast_decoder_r2 = None
+
         return cls(
             model=model, normalizer=normalizer, device=device,
             window_size_seconds=window_size_seconds,
             seq_len=run_config["data"]["seq_len"],
             default_k=10,
             stage_duration_stats=stage_duration_stats,
+            surprise_reference=surprise_reference,
+            forecast_decoder=forecast_decoder,
+            forecast_decoder_r2=forecast_decoder_r2,
         )
 
 
@@ -212,12 +247,29 @@ def run_pipeline(
         context = snapshots[i - context_len + 1: i + 1]
         result = run_rollout(bundle.model, context, bundle.normalizer, k=1, device=bundle.device, compute_explanations=False)
         window_edges = compute_edge_attention(bundle.model, snapshots[i], bundle.normalizer, bundle.device)
+
+        # Surprise Alarm (differentiator): real dynamics-prediction error for
+        # this OBSERVED transition (snapshots[i] -> snapshots[i+1], the true
+        # next window, already available here) -- see surprise/score.py.
+        # None when the reference is missing, OR when this transition
+        # touches an empty window (is_informative_transition) -- an empty
+        # window's MSE is a constant "quiet network" artifact, not a real
+        # novelty signal (see that function's module-docstring note on the
+        # real false-alarm bug this excludes).
+        if bundle.surprise_reference is not None and is_informative_transition(context, snapshots[i + 1]):
+            surprise_mse = compute_dynamics_surprise(bundle.model, context, snapshots[i + 1], bundle.normalizer, bundle.device)
+            surprise_percentile = bundle.surprise_reference.percentile_of(surprise_mse)
+        else:
+            surprise_percentile = None
+
         timeline.append({
             "window_id": snapshots[i + 1].window_id,
             "window_start": snapshots[i + 1].window_start,
             "infiltration_probability": result.infiltration_probability[0],
             "mitre_stage": _stage_to_dict(result.stage_predictions[0]),
             "top_flows": top_edges_overall(window_edges, top_k=3),
+            "surprise_percentile": surprise_percentile,
+            "surprise_alarm": surprise_percentile is not None and surprise_percentile >= ALARM_PERCENTILE,
         })
 
     # Final K-step forecast + full explanation, from the very end of the
@@ -234,13 +286,41 @@ def run_pipeline(
         )
     ]
 
+    # Network Forecast View (differentiator): decode a real predicted
+    # future latent back into human-readable stats. Step 5 (the brief's own
+    # "now vs +5 min" framing) sits past this project's own disclosed
+    # "trust steps 1-3" reliability window -- surfaced with its real
+    # held-out R^2 per stat so the frontend can show that honestly, not
+    # hide it. "now" stats are real ground truth from the actual current
+    # window (final_context[-1]), no model involved.
+    network_forecast = None
+    if bundle.forecast_decoder is not None and forecast_result.predicted_latents:
+        forecast_step_index = min(4, len(forecast_result.predicted_latents) - 1)  # step 5, 1-indexed -> index 4
+        z_hat = torch.tensor(forecast_result.predicted_latents[forecast_step_index], device=bundle.device).unsqueeze(0)
+        with torch.no_grad():
+            decoded = inverse_transform_targets(bundle.forecast_decoder(z_hat).squeeze(0).cpu().numpy())
+        now_stats_raw = compute_target_stats(final_context[-1], final_context[-1])
+        network_forecast = {
+            "step": forecast_step_index + 1,
+            "now_stats": dict(zip(STAT_NAMES, [float(x) for x in now_stats_raw])),
+            "predicted_stats": dict(zip(STAT_NAMES, [float(x) for x in decoded])),
+            "held_out_r2": bundle.forecast_decoder_r2,
+        }
+
     current_stage = forecast_result.stage_predictions[0].stage
 
     # Multiple Parallel Futures (Phase 10): MC-Dropout resampling of the
     # SAME final context -- reuses forecast_result's own k, no separate
     # rollout config. Computed before Momentum below so its real
     # path_expansion signal can feed in (see momentum/score.py).
-    futures_result = sample_parallel_futures(bundle.model, final_context, bundle.normalizer, k=k, device=bundle.device)
+    mc_dropout_samples = run_mc_dropout_samples(bundle.model, final_context, bundle.normalizer, k=k, device=bundle.device)
+    futures_result = sample_parallel_futures(bundle.model, final_context, bundle.normalizer, k=k, device=bundle.device, samples=mc_dropout_samples)
+
+    # Time-to-Compromise (differentiator): pure post-processing of the SAME
+    # MC-Dropout ensemble above -- no extra model calls. See
+    # futures/time_to_compromise.py's module docstring for the real bug fix
+    # (MC-Dropout sampling was previously a silent no-op) this depends on.
+    ttc_result = compute_time_to_compromise(mc_dropout_samples, k=k)
 
     # Momentum Score (Phase 9, Feature 1): the "current" moment is defined as
     # the freshest available prediction -- the walk-forward timeline PLUS the
@@ -271,6 +351,46 @@ def run_pipeline(
         current_attack_type_probs=forecast_result.attack_type_probs[0] if forecast_result.attack_type_probs else {},
         forecast_attack_type_probs=forecast_result.attack_type_probs,
     )
+
+    # Surprise Alarm summary: "current" = the most recent observed timeline
+    # entry (the forecast horizon has no ground truth to score surprise
+    # against, so it stops at the same point the walk-forward timeline
+    # does -- see surprise/score.py's module docstring).
+    scored_entries = [t for t in timeline if t["surprise_percentile"] is not None]
+    if timeline and scored_entries:
+        # "Current" = the most recent SCORED entry, not necessarily
+        # timeline[-1] -- the freshest window may itself be an empty,
+        # unscored transition while earlier windows in the same capture
+        # were scored.
+        current_surprise = scored_entries[-1]["surprise_percentile"]
+        max_surprise = max(t["surprise_percentile"] for t in scored_entries)
+        alarm_raised = scored_entries[-1]["surprise_alarm"]
+        if bundle.surprise_reference is None:
+            surprise_explanation = "No surprise reference distribution shipped with this checkpoint -- run scripts/export_surprise_reference.py."
+        elif alarm_raised:
+            surprise_explanation = f"Most recent observed window scored at the {current_surprise:.1f}th percentile of real benign-to-benign behavior -- the model's own dynamics prediction was more wrong here than {current_surprise:.0f}% of normal transitions in the training data."
+        else:
+            surprise_explanation = f"Most recent observed window scored at the {current_surprise:.1f}th percentile of real benign-to-benign behavior -- within the range the model's dynamics normally expect."
+        surprise_summary = {
+            "current_percentile": current_surprise,
+            "alarm_raised": alarm_raised,
+            "max_percentile_in_window": max_surprise,
+            "explanation": surprise_explanation,
+        }
+    elif not timeline:
+        surprise_summary = {
+            "current_percentile": None,
+            "alarm_raised": False,
+            "max_percentile_in_window": None,
+            "explanation": "No observed timeline entries to score (upload has exactly context_len windows, none left over after context) -- Surprise Alarm needs at least one real observed transition.",
+        }
+    else:
+        surprise_summary = {
+            "current_percentile": None,
+            "alarm_raised": False,
+            "max_percentile_in_window": None,
+            "explanation": "Every observed transition in this capture touched an empty (zero-flow) window -- Surprise Alarm excludes those as uninformative (see surprise/score.py).",
+        }
 
     result = {
         "file_type": file_type,
@@ -332,6 +452,15 @@ def run_pipeline(
             "top_stage": fingerprint_result.top_stage,
             "summary": fingerprint_result.summary,
         },
+        "surprise_alarm": surprise_summary,
+        "time_to_compromise": {
+            "n_samples": ttc_result.n_samples,
+            "threshold": ttc_result.threshold,
+            "cumulative_fraction": ttc_result.cumulative_fraction,
+            "median_crossing_step": ttc_result.median_crossing_step,
+            "never_crossed_fraction": ttc_result.never_crossed_fraction,
+        },
+        "network_forecast": network_forecast,
         "warnings": warnings,
     }
     return result, final_context
@@ -364,4 +493,39 @@ def run_simulation(
         "original_stage": sim.original_stage,
         "modified_stage": sim.modified_stage,
         "side_effects": sim.side_effects,
+    }
+
+
+def run_response_plan(bundle: ModelBundle, context: list[GraphSnapshot], k: int | None) -> dict:
+    """Response Planner (differentiator): candidates are built from the SAME
+    real attention-ranked flows /analyze itself surfaces as `flagged_flows`
+    (recomputed fresh here from `context[-1]`, rather than requiring the
+    caller to have cached them separately -- compute_edge_attention is a
+    cheap single forward pass, the same cost /analyze already pays for this
+    exact computation)."""
+    k = k if k is not None else bundle.default_k
+    edge_records = compute_edge_attention(bundle.model, context[-1], bundle.normalizer, bundle.device)
+    flagged_flows = top_edges_overall(edge_records, top_k=5)
+
+    if not flagged_flows:
+        return {"actions": [], "warning": "No flagged flows in the current context to build candidate actions from."}
+
+    planned = plan_response(bundle.model, context, bundle.normalizer, flagged_flows, k=k, device=bundle.device)
+    return {
+        "actions": [
+            {
+                "action_label": p.action.label,
+                "risk_reduction": p.risk_reduction,
+                "normal_flows_disrupted": p.normal_flows_disrupted,
+                "original_stage": p.original_stage,
+                "modified_stage": p.modified_stage,
+                "side_effects": p.side_effects,
+            }
+            for p in planned
+        ],
+        "warning": (
+            "This model was never trained on intervened graphs -- real measured effect sizes are typically "
+            "hundredths of a probability point. Read this ranking as 'which action had any measurable effect,' "
+            "not as a statistically validated recommendation (see counterfactual/planner.py's module docstring)."
+        ),
     }

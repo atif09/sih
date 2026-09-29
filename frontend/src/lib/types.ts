@@ -33,6 +33,24 @@ export interface TimelinePoint {
   // enough to compute for every observed window (unlike the full Phase 5
   // explanation, which stays attached to the final prediction only).
   top_flows: FlaggedFlow[]
+  // Surprise Alarm differentiator -- see surprise/score.py. null when this
+  // transition touched an empty (zero-flow) window, excluded as
+  // uninformative rather than scored (see that module's own bug note).
+  surprise_percentile: number | null
+  surprise_alarm: boolean
+}
+
+// Surprise Alarm differentiator -- see surprise/score.py. Reuses the
+// model's own existing dynamics-prediction loss (no new head, no
+// retraining) as a real novelty signal, ranked against a reference
+// distribution of benign-to-benign transitions from the training days.
+// Detects "different from training distribution," not "malicious"
+// specifically -- see that module's docstring for the honest limitation.
+export interface SurpriseAlarmSummary {
+  current_percentile: number | null
+  alarm_raised: boolean
+  max_percentile_in_window: number | null
+  explanation: string
 }
 
 export interface ForecastPoint {
@@ -119,6 +137,28 @@ export interface AttackFingerprint {
   summary: string
 }
 
+// Time-to-Compromise (differentiator) -- see futures/time_to_compromise.py.
+// Built from the same MC-Dropout ensemble as MultipleFutures. Raw
+// empirical Monte-Carlo fractions, not temperature-scaled probabilities.
+export interface TimeToCompromise {
+  n_samples: number
+  threshold: number
+  cumulative_fraction: number[] // length k
+  median_crossing_step: number | null
+  never_crossed_fraction: number
+}
+
+// Network Forecast View (differentiator) -- see models/forecast_decoder.py.
+// now_stats are real ground truth; predicted_stats come from a small
+// decoder trained on top of the frozen world model. held_out_r2 is always
+// present so the UI can show real per-stat reliability, not a bare number.
+export interface NetworkForecastView {
+  step: number
+  now_stats: Record<string, number>
+  predicted_stats: Record<string, number>
+  held_out_r2: Record<string, number> | null
+}
+
 export interface AnalyzeResponse {
   filename: string
   file_type: "csv" | "pcap" | "csv+pcap"
@@ -133,6 +173,9 @@ export interface AnalyzeResponse {
   containment: ContainmentEstimate
   multiple_futures: MultipleFutures
   attack_fingerprint: AttackFingerprint
+  surprise_alarm: SurpriseAlarmSummary
+  time_to_compromise: TimeToCompromise
+  network_forecast: NetworkForecastView | null
   warnings: string[]
 }
 
@@ -158,6 +201,28 @@ export interface SimulateResponse {
   original_stage: string
   modified_stage: string
   side_effects: string[]
+}
+
+// Response Planner (differentiator) -- see counterfactual/planner.py. Runs
+// the same simulator as SimulateRequest/SimulateResponse above, in a loop
+// over every candidate action, and ranks the results. Same cached-context
+// convention: acts on the most recent /analyze call.
+export interface PlanResponseRequest {
+  k?: number
+}
+
+export interface PlannedActionItem {
+  action_label: string
+  risk_reduction: number // mean(original) - mean(modified); positive = action reduced predicted risk
+  normal_flows_disrupted: number
+  original_stage: string
+  modified_stage: string
+  side_effects: string[]
+}
+
+export interface PlanResponseResponse {
+  actions: PlannedActionItem[] // sorted by risk_reduction descending
+  warning: string
 }
 
 // The five PS-mandated MITRE stages, in kill-chain order. Matches

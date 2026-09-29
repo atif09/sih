@@ -28,8 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.pipeline import InsufficientDataError, ModelBundle, run_pipeline, run_simulation
-from api.schemas import AnalyzeResponse, CalibrationResponse, ErrorResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse
+from api.pipeline import InsufficientDataError, ModelBundle, run_pipeline, run_response_plan, run_simulation
+from api.schemas import AnalyzeResponse, CalibrationResponse, ErrorResponse, PlanResponseRequest, PlanResponseResponse, ROCPRCurvesResponse, SimulateRequest, SimulateResponse
 from models.train import resolve_device
 
 logger = logging.getLogger(__name__)
@@ -255,6 +255,31 @@ async def simulate(request: SimulateRequest):
     except Exception as exc:
         logger.exception("Pipeline failure during /simulate")
         raise HTTPException(status_code=500, detail=f"Simulation error: {exc}")
+
+
+@app.post(
+    "/plan-response",
+    response_model=PlanResponseResponse,
+    responses={422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def plan_response_endpoint(request: PlanResponseRequest):
+    """Response Planner (differentiator): tries every sensible defender
+    action against the flows the model's own attention flagged, using the
+    existing Counterfactual Intervention Simulator in a loop, and ranks the
+    results. Acts on the same cached context as /simulate -- call /analyze
+    first. See counterfactual/planner.py's module docstring for the honest
+    limitation this endpoint's response always discloses."""
+    bundle: ModelBundle = _state["bundle"]
+    context = _state.get("last_context")
+    if context is None:
+        raise HTTPException(status_code=422, detail="No analyzed context available yet -- call /analyze first.")
+
+    try:
+        result = run_response_plan(bundle, context, k=request.k)
+        return PlanResponseResponse(**result)
+    except Exception as exc:
+        logger.exception("Pipeline failure during /plan-response")
+        raise HTTPException(status_code=500, detail=f"Planning error: {exc}")
 
 
 # Deployment (Docker/Hugging Face Spaces): serves the built frontend
