@@ -35,13 +35,23 @@ function FingerprintRadar({ fingerprint }: { fingerprint: AttackFingerprint }) {
     return { stage, current: c?.current_score ?? 0, predicted: c?.predicted_score ?? 0 }
   })
 
+  // Real scores are frequently all "LOW" (well under 0.1) -- see the
+  // Honest Limit column this feature ships with. A fixed [0, 1] domain
+  // makes that shape collapse to an invisible dot at the center, which
+  // reads as "broken," not "low." Zooming the radial axis to the actual
+  // data range (same fix already used in CounterfactualPanel's yDomain)
+  // keeps the axis linear and honest while making real small differences
+  // visible; a floor keeps a flat-zero capture from dividing by ~0.
+  const maxValue = Math.max(...rows.flatMap((r) => [r.current, r.predicted]), 0)
+  const radiusDomain: [number, number] = [0, Math.max(maxValue * 1.25, 0.05)]
+
   return (
     <div className="h-56 w-full shrink-0 p-2">
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={rows} outerRadius="70%">
           <PolarGrid stroke="#d4d4d8" />
           <PolarAngleAxis dataKey="stage" tick={{ fill: "#71717a", fontFamily: "JetBrains Mono", fontSize: 8.5 }} />
-          <PolarRadiusAxis domain={[0, 1]} tick={{ fill: "#71717a", fontFamily: "JetBrains Mono", fontSize: 8 }} tickCount={3} axisLine={false} />
+          <PolarRadiusAxis domain={radiusDomain} tick={{ fill: "#71717a", fontFamily: "JetBrains Mono", fontSize: 8 }} tickCount={3} axisLine={false} tickFormatter={(v) => (typeof v === "number" ? v.toFixed(2) : String(v))} />
           <Tooltip
             contentStyle={{ background: "#ffffff", border: "1px solid #d4d4d8", fontFamily: "JetBrains Mono", fontSize: 11 }}
             labelStyle={{ color: "#71717a" }}
@@ -51,8 +61,8 @@ function FingerprintRadar({ fingerprint }: { fingerprint: AttackFingerprint }) {
             wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#71717a" }}
             formatter={(value) => (value === "current" ? "current" : "predicted future")}
           />
-          <Radar name="current" dataKey="current" stroke="#00f0ff" strokeWidth={2} fill="#00f0ff" fillOpacity={0.15} isAnimationActive={false} />
-          <Radar name="predicted" dataKey="predicted" stroke="#ffb4ab" strokeWidth={1.75} strokeDasharray="5 4" fill="#ffb4ab" fillOpacity={0.08} isAnimationActive={false} />
+          <Radar name="current" dataKey="current" stroke="#00f0ff" strokeWidth={2} fill="#00f0ff" fillOpacity={0.2} dot={{ r: 3, fill: "#00f0ff", stroke: "#ffffff", strokeWidth: 1 }} isAnimationActive={false} />
+          <Radar name="predicted" dataKey="predicted" stroke="#ffb4ab" strokeWidth={1.75} strokeDasharray="5 4" fill="#ffb4ab" fillOpacity={0.12} dot={{ r: 3, fill: "#ffb4ab", stroke: "#ffffff", strokeWidth: 1 }} isAnimationActive={false} />
         </RadarChart>
       </ResponsiveContainer>
     </div>
