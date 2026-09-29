@@ -65,6 +65,7 @@ class RolloutResult:
     driving_context_flows: list[dict] = field(default_factory=list)  # Phase 4 heuristic stub, see explain_stub.py
     attention_flows: list[dict] = field(default_factory=list)  # Phase 5: real GNN attention, see explain/attention.py
     feature_saliency: dict = field(default_factory=dict)  # Phase 5: real gradient attribution, see explain/saliency.py
+    predicted_latents: list[list[float]] = field(default_factory=list)  # length k; ẑ_hat at each step, for Network Forecast View's decoder (models/forecast_decoder.py) -- was always computed internally, just discarded before this field existed
 
 
 def _sigmoid(x: torch.Tensor) -> torch.Tensor:
@@ -79,18 +80,37 @@ def run_rollout(
     device: torch.device,
     infiltration_threshold: float = 0.5,
     compute_explanations: bool = True,
+    use_dropout: bool = False,
 ) -> RolloutResult:
     """compute_explanations=True (default) additionally computes real
     attention-weight and gradient-based feature attribution for the context
     (Phase 5) -- set False to skip that extra forward/backward pass when only
     the probability time series is needed (e.g. inside a training loop or a
-    benchmark sweep over many contexts)."""
+    benchmark sweep over many contexts).
+
+    use_dropout=False (default) puts the model in eval() mode before running
+    -- deterministic, dropout disabled, correct for every normal caller. Set
+    True ONLY for MC-Dropout sampling (futures/parallel_futures.py), which
+    needs dropout genuinely active across a whole loop of these calls.
+
+    This parameter exists because of a real, previously undiscovered bug: an
+    earlier version of this function unconditionally called model.eval() as
+    its first line, silently overriding a caller's own model.train() call on
+    every single invocation -- so Multiple Parallel Futures' MC-Dropout
+    sampling was NEVER actually active. Verified: 0.00000 standard deviation
+    across 40 "independent" samples at every rollout step, before this fix.
+    An implicit "caller sets the mode, this function trusts it" contract was
+    tried first and immediately broke a real test (a freshly constructed
+    model defaults to train() mode in plain PyTorch) -- this explicit flag
+    is the safer fix: every call site's intent is visible at the call, and
+    nothing depends on remembering ambient mutable model state."""
     if len(context_snapshots) < 1:
         raise ValueError("run_rollout requires at least one context snapshot")
     if len({s.day for s in context_snapshots}) > 1:
         raise ValueError("context_snapshots must all come from the same day (see graph/transitions.py's same-day invariant)")
 
-    model.eval()
+    if not use_dropout:
+        model.eval()
     day = context_snapshots[0].day
     context_end = context_snapshots[-1].window_id
     last_context_snapshot = context_snapshots[-1]
@@ -106,6 +126,7 @@ def run_rollout(
 
         infiltration_probs: list[float] = []
         type_probs: list[dict[str, float]] = []
+        predicted_latents: list[list[float]] = []
         vocab = model.config.attack_type_vocab
 
         def _record(attack_logit: torch.Tensor, attack_type_logit: torch.Tensor | None) -> None:
@@ -125,11 +146,13 @@ def run_rollout(
             attack_logit = model.attack_head(combined).squeeze(-1)
             attack_type_logit = model.attack_type_head(combined) if model.attack_type_head is not None else None
             _record(attack_logit, attack_type_logit)
+            predicted_latents.append(z_hat.squeeze(0).cpu().tolist())
 
             for _ in range(k - 1):
                 step = model.rollout_step(z_hat, lstm_state)
                 z_hat, lstm_state = step["z_hat_next"], step["lstm_state"]
                 _record(step["attack_logit"], step["attack_type_logit"])
+                predicted_latents.append(z_hat.squeeze(0).cpu().tolist())
         else:
             # Transformer (or any future TemporalCore): re-run the causal
             # encoder over the growing latent sequence each step.
@@ -142,6 +165,7 @@ def run_rollout(
                 attack_logit = model.attack_head(combined).squeeze(-1)
                 attack_type_logit = model.attack_type_head(combined) if model.attack_type_head is not None else None
                 _record(attack_logit, attack_type_logit)
+                predicted_latents.append(z_hat.squeeze(0).cpu().tolist())
                 z_running = torch.cat([z_running, z_hat.unsqueeze(1)], dim=1)
 
         stage_predictions = [
@@ -164,4 +188,5 @@ def run_rollout(
         driving_context_flows=top_contributing_edges(last_context_snapshot),
         attention_flows=attention_flows,
         feature_saliency=feature_saliency,
+        predicted_latents=predicted_latents,
     )

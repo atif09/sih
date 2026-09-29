@@ -81,6 +81,33 @@ class ParallelFuturesResult:
 
 
 @torch.no_grad()
+def run_mc_dropout_samples(
+    model: WorldModel,
+    context: list[GraphSnapshot],
+    normalizer: FeatureNormalizer,
+    k: int,
+    device: torch.device,
+    n_samples: int = N_SAMPLES_DEFAULT,
+) -> list:
+    """Real MC-Dropout sampling, extracted so callers needing MORE than the
+    final-step stage tally (e.g. futures/time_to_compromise.py, which needs
+    the FULL per-step probability trajectory of every sample) don't have to
+    pay for a second, separate round of n_samples rollouts. Returns the raw
+    list of RolloutResult objects; see module docstring for the method and
+    its honest limitations, and rollout/engine.py's run_rollout docstring
+    for why use_dropout=True is required here (a real bug, now fixed, meant
+    this was previously a silent no-op)."""
+    model.train()  # activates dropout sampling only -- see module docstring (no BatchNorm exists)
+    try:
+        return [
+            run_rollout(model, context, normalizer, k=k, device=device, compute_explanations=False, use_dropout=True)
+            for _ in range(n_samples)
+        ]
+    finally:
+        model.eval()  # always restore -- every other caller in this project assumes eval mode
+
+
+@torch.no_grad()
 def sample_parallel_futures(
     model: WorldModel,
     context: list[GraphSnapshot],
@@ -88,28 +115,31 @@ def sample_parallel_futures(
     k: int,
     device: torch.device,
     n_samples: int = N_SAMPLES_DEFAULT,
+    samples: list | None = None,
 ) -> ParallelFuturesResult:
     """Runs `n_samples` independent MC-Dropout rollouts from the same
     context and tallies the resulting final-step stage outcomes. See
-    module docstring for the full method and its honest limitations."""
+    module docstring for the full method and its honest limitations. Pass
+    `samples` (from a prior run_mc_dropout_samples call) to reuse an
+    already-sampled ensemble instead of sampling a fresh one -- api/pipeline.py
+    does this so /analyze pays for MC-Dropout sampling once, not twice, when
+    both this and Time-to-Compromise are computed for the same request."""
     # The one deterministic (eval-mode) forecast, for reference -- this is
     # exactly what /analyze's own `forecast` field already shows.
     deterministic = run_rollout(model, context, normalizer, k=k, device=device, compute_explanations=False)
     deterministic_stage = deterministic.stage_predictions[-1].stage
 
+    if samples is None:
+        samples = run_mc_dropout_samples(model, context, normalizer, k, device, n_samples)
+    n_samples = len(samples)
+
     outcome_counts: Counter[str] = Counter()
     outcome_prob_sums: dict[str, float] = {}
-
-    model.train()  # activates dropout sampling only -- see module docstring (no BatchNorm exists)
-    try:
-        for _ in range(n_samples):
-            sample = run_rollout(model, context, normalizer, k=k, device=device, compute_explanations=False)
-            stage = sample.stage_predictions[-1].stage
-            prob = sample.infiltration_probability[-1]
-            outcome_counts[stage] += 1
-            outcome_prob_sums[stage] = outcome_prob_sums.get(stage, 0.0) + prob
-    finally:
-        model.eval()  # always restore -- every other caller in this project assumes eval mode
+    for sample in samples:
+        stage = sample.stage_predictions[-1].stage
+        prob = sample.infiltration_probability[-1]
+        outcome_counts[stage] += 1
+        outcome_prob_sums[stage] = outcome_prob_sums.get(stage, 0.0) + prob
 
     outcomes = [
         FutureOutcome(
