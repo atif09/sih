@@ -606,7 +606,7 @@ this exact scenario.
   just the rollout loop, since saliency needs gradients in the same call).
 - `scripts/explain_prediction.py` — CLI for a single structured,
   human-readable explanation.
-- 13 new unit tests (71 total, all passing), including the concentration-
+- 13 new unit tests (71 total; all passing), including the concentration-
   ranking regression test above.
 
 ### Verified against real data (held-out DDoS day, window 40 — inside the attack)
