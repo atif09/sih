@@ -15,8 +15,6 @@ A world model that learns how a network's state evolves over time and
 forecasts attacker progression *before* compromise completes — not a
 classifier that labels traffic after the fact.
 
-Live demo: `<add deployed link>` · Report / architecture doc: `<add link>` · Demo video: `<add link>`
-
 ---
 
 ## 1. The problem
@@ -58,7 +56,7 @@ saw this attack type during training.
 | Logistic-regression baseline (same pooled features, no temporal context) | 0.696 | 0.000 | 0.000 | 0.000 | 0.099 | 0.040 |
 
 This is one unseen attack type on one dataset, not a general
-"works-on-any-network" claim — see [Limitations](#8-honest-limitations).
+"works-on-any-network" claim.
 
 ## 4. What's built
 
@@ -157,31 +155,14 @@ fully offline — no external API calls.
 | `POST /plan-response` | Ranks every candidate defender action by measured risk reduction |
 | `GET /model-performance/roc-pr`, `/calibration` | Precomputed held-out evaluation data |
 
-## 7. Verification
-
-~196 tests across 21 files — feature extraction, graph construction,
-train/val split leakage, temporal causality, rollout correctness (both
-temporal cores), MITRE mapping, explainability ranking, every analyst
-feature, and API edge cases. Every number in this document comes from a
-real run against real data, not a projected or illustrative figure.
-
-## 8. Honest limitations
-
-- **Single dataset.** Trained and evaluated on CIC-IDS2017 (2017, lab-generated). The held-out-day result shows generalization to an unseen attack *type* within this dataset, not across datasets or real enterprise traffic — that is untested.
-- **Packet-level features are not yet learned.** The schema and extraction code for TTL, IP fragmentation, TCP window, and retransmission features are real and working, but the shipped checkpoint was trained on CSV-only data where these columns were zero — the model has not learned to use them yet.
-- **Scores are uncalibrated.** Held-out probabilities cluster around two values rather than spanning a smooth range; ranking is strong, exact probability values are not.
-- **Forecast quality degrades with horizon.** Steps 1–3 are reliable; by step 10 the rollout drifts toward an uninformative middle value.
-- **No stage-to-stage progression data exists in this dataset** (each capture day contains one attack campaign throughout), so the Containment Window Estimator reports typical episode duration for the current stage, not time-to-next-stage.
-- **Prototype-grade API**: no auth, no rate limiting, single global context for `/simulate`.
-
-## 9. Roadmap
+## 7. Roadmap
 
 1. Real packet-level training signal (raw PCAP already downloadable from UNB; extraction code is built and tested, retraining is the remaining step)
 2. Second dataset for genuine cross-dataset generalization evidence (CTU-13 scoped, not yet integrated)
 3. Temperature scaling for calibration
 4. Live NetFlow/IPFIX ingestion, auth, multi-session state
 
-## 10. Project layout
+## 8. Project layout
 
 ```
 features/     Flow-level + packet-level extraction, windowing
