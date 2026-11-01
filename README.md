@@ -12,7 +12,7 @@ app_port: 7860
 **SIH 2026 · PS 26153 · National Technical Research Organisation (NTRO)**
 
 A world model that learns how a network's state evolves over time and
-forecasts attacker progression *before* compromise completes — not a
+forecasts attacker,progression *before* compromise completes — not a
 classifier that labels traffic after the fact.
 
 ---
@@ -22,7 +22,7 @@ classifier that labels traffic after the fact.
 Conventional intrusion detection looks at one flow or one time window in
 isolation and outputs a benign/malicious label. It has no memory and no
 sense of direction — it cannot tell a host that has been quietly scanning
-for five minutes from a host that has always talked to many peers, because
+for five minutes from a host that has, always talked to many peers, because
 it only ever sees the current instant.
 
 PS 26153 asks for something different: a system that models the network as
@@ -35,13 +35,13 @@ Each 60-second window of traffic becomes a **graph** — hosts are nodes,
 aggregated host-pair traffic is edges. A Graph Neural Network encodes that
 graph into a latent vector; a temporal model (LSTM, swappable for a
 Transformer) consumes the last 20 latents and predicts the **next** one,
-before it is ever observed. The attack-forecast head reads that predicted
+before it is ever observed. The attack-forecast head,reads that predicted
 future latent, not the true one — this is what makes the output a genuine
 forecast rather than a delayed classification.
 
 Because the model predicts a latent instead of raw traffic, it can roll
 forward K steps by feeding its own predictions back into itself, with no
-future ground truth required — the same principle behind world models in
+future ground,truth required — the same principle behind world models in
 Ha & Schmidhuber (2018) and Hafner et al. (2020).
 
 ## 3. Headline result
@@ -159,7 +159,7 @@ fully offline — no external API calls.
 
 1. Real packet-level training signal (raw PCAP already downloadable from UNB; extraction code is built and tested, retraining is the remaining step)
 2. Second dataset for genuine cross-dataset generalization evidence (CTU-13 scoped, not yet integrated)
-3. Temperature scaling for calibration
+3. Temperature scaling for calibration.
 4. Live NetFlow/IPFIX ingestion, auth, multi-session state
 
 ## 8. Project layout
