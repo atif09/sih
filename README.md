@@ -1,12 +1,3 @@
----
-title: NeuralShield
-emoji: 🛡️
-colorFrom: blue
-colorTo: gray
-sdk: docker
-app_port: 7860
----
-
 # NeuralShield — AI-Based Network Attack Forecasting
 
 **SIH 2026 · PS 26153 · National Technical Research Organisation (NTRO)**
